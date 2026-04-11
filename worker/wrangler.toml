@@ -1,0 +1,11 @@
+name = "nserewa-api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+NODE_ENV = "production"
+HMRC_API_BASE_URL = "https://test-api.service.hmrc.gov.uk"
+HMRC_AUTH_URL = "https://test-api.service.hmrc.gov.uk/oauth/authorize"
+HMRC_TOKEN_URL = "https://test-api.service.hmrc.gov.uk/oauth/token"
+FRONTEND_URL = "https://nserewa.pages.dev"
