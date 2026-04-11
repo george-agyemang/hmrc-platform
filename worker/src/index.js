@@ -81,7 +81,8 @@ router.post('/users/register', async (req, env) => {
     const hash = await hashPassword(password);
     const id = crypto.randomUUID();
 
-    const res = await dbWrite(env, 'User', { id, email, name: name || '', passwordHash: hash });
+   const now = new Date().toISOString();
+const res = await dbWrite(env, 'User', { id, email, name: name || '', passwordHash: hash, createdAt: now, updatedAt: now });
     if (!res.ok) {
       const e = await res.text();
       console.error('Supabase error:', e);
@@ -103,7 +104,7 @@ router.post('/users/register', async (req, env) => {
 
 // ── Login ─────────────────────────────────────────────────────
 router.post('/users/login', async (req, env) => {
-  try {
+ try {
     const { email, password } = await req.json();
     if (!email || !password) return err('Email and password required', 400, req);
 
