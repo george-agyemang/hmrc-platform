@@ -1,6 +1,10 @@
 #!/bin/bash
 echo "🚀 Starting HMRC Platform..."
 
+# Kill any existing processes on our ports
+lsof -ti:3001 | xargs kill -9 2>/dev/null
+lsof -ti:3000 | xargs kill -9 2>/dev/null
+sleep 1
 # ── Backend setup ─────────────────────────────────────────────
 cd /workspaces/hmrc-platform/backend
 
