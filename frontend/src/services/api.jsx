@@ -1,12 +1,13 @@
 import axios from 'axios';
-const api = axios.create({ baseURL: '', withCredentials: true });
+const BASE = import.meta.env.VITE_API_URL || '';
+const api = axios.create({ baseURL: BASE, withCredentials: true });
 export const authService = {
   register: (d) => api.post('/users/register', d).then(r => r.data),
   login: (d) => api.post('/users/login', d).then(r => r.data),
   logout: () => api.post('/users/logout').then(r => r.data),
   me: () => api.get('/users/me').then(r => r.data),
   hmrcStatus: () => api.get('/auth/status').then(r => r.data),
-  connectHmrc: (userId) => { window.location.href = `/auth/hmrc?userId=${encodeURIComponent(userId)}`; },
+  connectHmrc: (userId) => { window.location.href = `${BASE}/auth/hmrc?userId=${encodeURIComponent(userId)}`; },
 };
 export const businessService = {
   list: () => api.get('/businesses').then(r => r.data),
