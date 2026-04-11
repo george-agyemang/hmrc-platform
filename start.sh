@@ -1,6 +1,8 @@
 #!/bin/bash
 echo "🚀 Starting HMRC Platform..."
 
+export CLOUDFLARE_API_TOKEN=cfut_owz74eah8p33CNvJVOeSdijhdCfBbMH94HzSJyM9c931ebdc
+
 # Kill any existing processes on our ports
 lsof -ti:3001 | xargs kill -9 2>/dev/null
 lsof -ti:3000 | xargs kill -9 2>/dev/null
