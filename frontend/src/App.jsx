@@ -7,6 +7,7 @@ import { AuthSuccess, AuthError } from './pages/AuthCallbacks.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import AddBusiness from './pages/AddBusiness.jsx';
 import SubmitReturn from './pages/SubmitReturn.jsx';
+
 function AppRoutes() {
   const { user, login, logout } = useAuth();
   return (
@@ -23,6 +24,7 @@ function AppRoutes() {
     </Routes>
   );
 }
+
 export default function App() {
   return <AuthProvider><BrowserRouter><AppRoutes /></BrowserRouter></AuthProvider>;
 }
