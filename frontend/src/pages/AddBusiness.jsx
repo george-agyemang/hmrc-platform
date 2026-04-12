@@ -1,0 +1,96 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../hooks/useAuth.jsx'
+
+const BUSINESS_TYPES = [
+  { value: 'sole_trader', label: 'Sole Trader' },
+  { value: 'limited_company', label: 'Limited Company' },
+  { value: 'partnership', label: 'Partnership' },
+]
+
+const API = import.meta.env.VITE_API_URL
+
+export default function AddBusiness() {
+  const navigate = useNavigate()
+  const { token } = useAuth()
+  const [form, setForm] = useState({ name: '', type: 'sole_trader', vrn: '', utr: '', crn: '' })
+  const [errors, setErrors] = useState([])
+  const [submitting, setSubmitting] = useState(false)
+
+  const set = (field) => (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setErrors([])
+    setSubmitting(true)
+    try {
+      const res = await fetch(`${API}/businesses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...form, vrn: form.vrn.replace(/\s/g, ''), utr: form.utr.replace(/\s/g, ''), crn: form.crn.replace(/\s/g, '') }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setErrors(data.errors ?? [data.error ?? 'Something went wrong']); return }
+      navigate('/dashboard')
+    } catch { setErrors(['Network error. Please try again.']) }
+    finally { setSubmitting(false) }
+  }
+
+  const inp = 'block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none'
+  const lbl = 'block text-sm font-medium text-gray-700 mb-1'
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-start pt-16 px-4">
+      <div className="w-full max-w-lg bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-gray-900">Add a Business</h1>
+          <p className="mt-1 text-sm text-gray-500">Register a business to start submitting VAT returns via MTD.</p>
+        </div>
+        {errors.length > 0 && (
+          <div className="mb-6 rounded-lg bg-red-50 border border-red-200 p-4">
+            <p className="text-sm font-semibold text-red-700 mb-1">Please fix the following:</p>
+            <ul className="list-disc list-inside space-y-0.5">
+              {errors.map((e, i) => <li key={i} className="text-sm text-red-600">{e}</li>)}
+            </ul>
+          </div>
+        )}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div>
+            <label className={lbl}>Business Name <span className="text-red-500">*</span></label>
+            <input type="text" value={form.name} onChange={set('name')} placeholder="e.g. Acme Trading Ltd" className={inp} required />
+          </div>
+          <div>
+            <label className={lbl}>Business Type <span className="text-red-500">*</span></label>
+            <select value={form.type} onChange={set('type')} className={inp}>
+              {BUSINESS_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={lbl}>VAT Registration Number (VRN)</label>
+            <input type="text" value={form.vrn} onChange={set('vrn')} placeholder="123456789" maxLength={9} className={inp} />
+            <p className="mt-1 text-xs text-gray-400">9 digits — required for VAT submissions</p>
+          </div>
+          <div>
+            <label className={lbl}>Unique Taxpayer Reference (UTR)</label>
+            <input type="text" value={form.utr} onChange={set('utr')} placeholder="1234567890" maxLength={10} className={inp} />
+            <p className="mt-1 text-xs text-gray-400">10 digits — required for Income Tax (ITSA)</p>
+          </div>
+          {form.type === 'limited_company' && (
+            <div>
+              <label className={lbl}>Company Registration Number (CRN)</label>
+              <input type="text" value={form.crn} onChange={set('crn')} placeholder="12345678" maxLength={8} className={inp} />
+            </div>
+          )}
+          <div className="flex items-center gap-3 pt-2">
+            <button type="submit" disabled={submitting} className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition">
+              {submitting ? 'Adding…' : 'Add Business'}
+            </button>
+            <button type="button" onClick={() => navigate('/dashboard')} className="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}

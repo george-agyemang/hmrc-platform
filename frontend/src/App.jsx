@@ -5,6 +5,8 @@ import { Login, Register } from './pages/Auth.jsx';
 import ConnectHmrc from './pages/ConnectHmrc.jsx';
 import { AuthSuccess, AuthError } from './pages/AuthCallbacks.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import AddBusiness from './pages/AddBusiness.jsx';
+import SubmitReturn from './pages/SubmitReturn.jsx';
 function AppRoutes() {
   const { user, login, logout } = useAuth();
   return (
@@ -15,8 +17,8 @@ function AppRoutes() {
       <Route path="/auth/error" element={<AuthError />} />
       <Route path="/connect" element={<ProtectedRoute><ConnectHmrc /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard user={user} onLogout={logout} /></ProtectedRoute>} />
-      <Route path="/businesses/new" element={<ProtectedRoute><div className="p-8 text-gray-500">Add Business — coming next</div></ProtectedRoute>} />
-      <Route path="/businesses/:id/submit" element={<ProtectedRoute><div className="p-8 text-gray-500">Submit Return — coming next</div></ProtectedRoute>} />
+      <Route path="/businesses/new" element={<ProtectedRoute><AddBusiness /></ProtectedRoute>} />
+      <Route path="/businesses/:businessId/submit" element={<ProtectedRoute><SubmitReturn /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
     </Routes>
   );
