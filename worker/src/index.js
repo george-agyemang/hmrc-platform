@@ -92,9 +92,9 @@ const res = await dbWrite(env, 'User', { id, email, name: name || '', passwordHa
     const user = (await res.json())[0];
     const token = await signJwt({ userId: user.id, email: user.email }, env.JWT_SECRET);
 
-    return new Response(JSON.stringify({ user: { id: user.id, email: user.email, name: user.name } }), {
+    return new Response(JSON.stringify({ user: { id: user.id, email: user.email, name: user.name }, token }), {
       status: 201,
-      headers: { 'Content-Type': 'application/json', 'Set-Cookie': setCookie(token), ...cors(req.headers.get('Origin')) },
+      headers: { 'Content-Type': 'application/json', ...cors(req.headers.get('Origin')) },
     });
   } catch (e) {
     console.error('Register error:', e);
@@ -148,7 +148,8 @@ router.get('/auth/hmrc', (req, env) => {
   const url = new URL(req.url);
   const userId = url.searchParams.get('userId');
   if (!userId) return err('userId required', 400, req);
-  const state = crypto.randomUUID();
+  // Encode userId directly in state - no cookie needed
+  const state = btoa(JSON.stringify({ userId, nonce: crypto.randomUUID() }));
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: env.HMRC_CLIENT_ID,
@@ -158,10 +159,7 @@ router.get('/auth/hmrc', (req, env) => {
   });
   return new Response(null, {
     status: 302,
-    headers: {
-      Location: `${env.HMRC_AUTH_URL}?${params}`,
-      'Set-Cookie': `oauth_state=${state}:${userId}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=600`,
-    },
+    headers: { Location: `${env.HMRC_AUTH_URL}?${params}` },
   });
 });
 
@@ -171,14 +169,14 @@ router.get('/auth/callback', async (req, env) => {
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
   const frontendUrl = env.FRONTEND_URL || 'https://nserewa.pages.dev';
-  const cookie = req.headers.get('Cookie') || '';
-  const stateCookie = cookie.match(/oauth_state=([^;]+)/)?.[1];
-
-  if (!stateCookie || !stateCookie.startsWith(state)) {
+  let userId;
+  try {
+    const stateData = JSON.parse(atob(state));
+    userId = stateData.userId;
+    if (!userId) throw new Error('No userId in state');
+  } catch(e) {
     return new Response(null, { status: 302, headers: { Location: `${frontendUrl}/auth/error?reason=invalid_state` } });
   }
-
-  const userId = stateCookie.split(':')[1];
 
   try {
     const tokenRes = await fetch(env.HMRC_TOKEN_URL, {
@@ -209,7 +207,7 @@ router.get('/auth/callback', async (req, env) => {
 
     return new Response(null, {
       status: 302,
-      headers: { Location: `${frontendUrl}/auth/success`, 'Set-Cookie': setCookie(token) },
+      headers: { Location: `${frontendUrl}/auth/success?token=${encodeURIComponent(token)}` },
     });
   } catch (e) {
     console.error('Callback error:', e);
