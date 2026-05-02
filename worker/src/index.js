@@ -365,7 +365,8 @@ router.post('/submissions/vat/full', async (req, env) => {
   });
   const hmrcData = await hmrcRes.json();
   if (!hmrcRes.ok) console.error('HMRC full VAT rejection:', JSON.stringify(hmrcData));
-  const now = new Date().toISOString(); periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
+  const now = new Date().toISOString();
+  const sub = { id: crypto.randomUUID(), businessId, taxType: 'VAT', submissionType: 'FULL', periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
   const saveRes = await dbWrite(env, 'Submission', sub);
   if (!saveRes.ok) { const e = await saveRes.text(); console.error('Full VAT save error:', e); }
   if (!hmrcRes.ok) return err(hmrcData.message || 'HMRC rejected submission', 400, req);
