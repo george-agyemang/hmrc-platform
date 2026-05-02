@@ -288,8 +288,9 @@ router.post('/submissions/vat/nil', async (req, env) => {
   });
   const hmrcData = await hmrcRes.json();
   const now = new Date().toISOString();
-  const sub = { id: crypto.randomUUID(), businessId, taxType: 'VAT', submissionType: 'NIL', periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload: JSON.stringify(payload), hmrcResponse: JSON.stringify(hmrcData), submittedAt: now, createdAt: now, updatedAt: now };
-  await dbWrite(env, 'Submission', sub);
+  const sub = { id: crypto.randomUUID(), businessId, taxType: 'VAT', submissionType: 'NIL', periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
+  const saveRes = await dbWrite(env, 'Submission', sub);
+  if (!saveRes.ok) { const e = await saveRes.text(); console.error('Nil VAT save error:', e); }
   if (!hmrcRes.ok) return err(hmrcData.message || 'HMRC rejected submission', 400, req);
   return json({ message: 'Nil VAT return submitted', submission: sub }, 201, req);
 });
@@ -359,8 +360,9 @@ router.post('/submissions/vat/full', async (req, env) => {
   });
   const hmrcData = await hmrcRes.json();
   const now = new Date().toISOString();
-  const sub = { id: crypto.randomUUID(), businessId, taxType: 'VAT', submissionType: 'FULL', periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload: JSON.stringify(payload), hmrcResponse: JSON.stringify(hmrcData), submittedAt: now, createdAt: now, updatedAt: now };
-  await dbWrite(env, 'Submission', sub);
+  const sub = { id: crypto.randomUUID(), businessId, taxType: 'VAT', submissionType: 'FULL', periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
+  const saveRes = await dbWrite(env, 'Submission', sub);
+  if (!saveRes.ok) { const e = await saveRes.text(); console.error('Full VAT save error:', e); }
   if (!hmrcRes.ok) return err(hmrcData.message || 'HMRC rejected submission', 400, req);
   return json({ message: 'VAT return submitted', submission: sub }, 201, req);
 });
@@ -442,8 +444,9 @@ router.post('/submissions/itsa/periodic', async (req, env) => {
   );
   const hmrcData = await hmrcRes.json();
   const now = new Date().toISOString();
-  const sub = { id: crypto.randomUUID(), businessId, taxType: 'ITSA', submissionType: 'PERIODIC', periodKey: `${fromDate}_${toDate}`, periodStart: fromDate, periodEnd: toDate, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.id || null, payload: JSON.stringify(payload), hmrcResponse: JSON.stringify(hmrcData), submittedAt: now, createdAt: now, updatedAt: now };
-  await dbWrite(env, 'Submission', sub);
+  const sub = { id: crypto.randomUUID(), businessId, taxType: 'ITSA', submissionType: 'PERIODIC', periodKey: `${fromDate}_${toDate}`, periodStart: fromDate, periodEnd: toDate, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.id || null, payload, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
+  const saveRes = await dbWrite(env, 'Submission', sub);
+  if (!saveRes.ok) { const e = await saveRes.text(); console.error('ITSA periodic save error:', e); }
   if (!hmrcRes.ok) return err(hmrcData.message || 'HMRC rejected periodic submission', 400, req);
   return json({ message: 'Periodic summary submitted', submission: sub }, 201, req);
 });
@@ -505,8 +508,9 @@ router.post('/submissions/itsa/crystallise', async (req, env) => {
   );
   const hmrcData = await hmrcRes.json();
   const now = new Date().toISOString();
-  const sub = { id: crypto.randomUUID(), businessId, taxType: 'ITSA', submissionType: 'CRYSTALLISATION', periodKey: taxYear, periodStart: `${taxYear.slice(0,4)}-04-06`, periodEnd: `${taxYear.slice(5)}-04-05`, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: calculationId, payload: JSON.stringify({ taxYear, calculationId }), hmrcResponse: JSON.stringify(hmrcData), submittedAt: now, createdAt: now, updatedAt: now };
-  await dbWrite(env, 'Submission', sub);
+  const sub = { id: crypto.randomUUID(), businessId, taxType: 'ITSA', submissionType: 'CRYSTALLISATION', periodKey: taxYear, periodStart: `${taxYear.slice(0,4)}-04-06`, periodEnd: `${taxYear.slice(5)}-04-05`, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: calculationId, payload: { taxYear, calculationId }, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
+  const saveRes = await dbWrite(env, 'Submission', sub);
+  if (!saveRes.ok) { const e = await saveRes.text(); console.error('ITSA crystallise save error:', e); }
   if (!hmrcRes.ok) return err(hmrcData.message || 'Crystallisation failed', 400, req);
   return json({ message: 'Final declaration submitted', submission: sub }, 201, req);
 });
