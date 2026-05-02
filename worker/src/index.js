@@ -335,17 +335,22 @@ router.post('/submissions/vat/full', async (req, env) => {
   const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
   const tokens = await tokenRes.json();
   if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const vatDueSales = Number(vatBoxes.vatDueSales ?? vatBoxes.box1) || 0;
+  const vatDueAcquisitions = Number(vatBoxes.vatDueAcquisitions ?? vatBoxes.box2) || 0;
+  const vatReclaimedCurrPeriod = Number(vatBoxes.vatReclaimedCurrPeriod ?? vatBoxes.box4) || 0;
+  const totalVatDue = Math.round((vatDueSales + vatDueAcquisitions) * 100) / 100;
+  const netVatDue = Math.round(Math.abs(totalVatDue - vatReclaimedCurrPeriod) * 100) / 100;
   const payload = {
     periodKey,
-    vatDueSales: Number(vatBoxes.vatDueSales) || 0,
-    vatDueAcquisitions: Number(vatBoxes.vatDueAcquisitions) || 0,
-    totalVatDue: Number(vatBoxes.totalVatDue) || 0,
-    vatReclaimedCurrPeriod: Number(vatBoxes.vatReclaimedCurrPeriod) || 0,
-    netVatDue: Number(vatBoxes.netVatDue) || 0,
-    totalValueSalesExVAT: Math.round(Number(vatBoxes.totalValueSalesExVAT) || 0),
-    totalValuePurchasesExVAT: Math.round(Number(vatBoxes.totalValuePurchasesExVAT) || 0),
-    totalValueGoodsSuppliedExVAT: Math.round(Number(vatBoxes.totalValueGoodsSuppliedExVAT) || 0),
-    totalAcquisitionsExVAT: Math.round(Number(vatBoxes.totalAcquisitionsExVAT) || 0),
+    vatDueSales,
+    vatDueAcquisitions,
+    totalVatDue,
+    vatReclaimedCurrPeriod,
+    netVatDue,
+    totalValueSalesExVAT: Math.round(Number(vatBoxes.totalValueSalesExVAT ?? vatBoxes.box6) || 0),
+    totalValuePurchasesExVAT: Math.round(Number(vatBoxes.totalValuePurchasesExVAT ?? vatBoxes.box7) || 0),
+    totalValueGoodsSuppliedExVAT: Math.round(Number(vatBoxes.totalValueGoodsSuppliedExVAT ?? vatBoxes.box8) || 0),
+    totalAcquisitionsExVAT: Math.round(Number(vatBoxes.totalAcquisitionsExVAT ?? vatBoxes.box9) || 0),
     finalised: true,
   };
   const hmrcRes = await fetch(`${env.HMRC_API_BASE_URL}/organisations/vat/${biz.vrn}/returns`, {
@@ -359,8 +364,8 @@ router.post('/submissions/vat/full', async (req, env) => {
     body: JSON.stringify(payload),
   });
   const hmrcData = await hmrcRes.json();
-  const now = new Date().toISOString();
-  const sub = { id: crypto.randomUUID(), businessId, taxType: 'VAT', submissionType: 'FULL', periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
+  if (!hmrcRes.ok) console.error('HMRC full VAT rejection:', JSON.stringify(hmrcData));
+  const now = new Date().toISOString(); periodKey, periodStart, periodEnd, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.formBundleNumber || null, payload, hmrcResponse: hmrcData, submittedAt: now, createdAt: now, updatedAt: now };
   const saveRes = await dbWrite(env, 'Submission', sub);
   if (!saveRes.ok) { const e = await saveRes.text(); console.error('Full VAT save error:', e); }
   if (!hmrcRes.ok) return err(hmrcData.message || 'HMRC rejected submission', 400, req);
