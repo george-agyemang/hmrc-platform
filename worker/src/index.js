@@ -5,7 +5,7 @@ const router = Router();
 const cors = (req) => ({
   'Access-Control-Allow-Origin': req?.headers?.get('Origin') || 'https://nserewa.pages.dev',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Hmrc-Client-Data',
   'Access-Control-Allow-Credentials': 'true',
 });
 const json = (data, status = 200, req) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...cors(req) } });
@@ -46,6 +46,51 @@ const getSession = (req) => {
   return verifyJwt(token);
 };
 
+
+// ── HMRC Fraud Prevention Headers ─────────────────────────────
+const buildFraudHeaders = (req) => {
+  const clientIp = req.headers.get('CF-Connecting-IP') || req.headers.get('X-Forwarded-For') || '0.0.0.0';
+  const workerIp = '0.0.0.0'; // Cloudflare Worker — no fixed outbound IP
+
+  // Parse device data sent by the frontend
+  let client = {};
+  try { client = JSON.parse(req.headers.get('X-Hmrc-Client-Data') || '{}'); } catch {}
+
+  const deviceId   = client.deviceId  || crypto.randomUUID();
+  const timezone   = client.timezone  || 'UTC+00:00';
+  const screens    = client.screens   || 'width=1920&height=1080&scaling-factor=1&colour-depth=24';
+  const winSize    = client.windowSize|| 'width=1280&height=720';
+  const doNotTrack = client.doNotTrack || 'false';
+  const now = new Date().toISOString();
+
+  // User agent must NOT be percent-encoded
+  let userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+  try { if (client.userAgent) userAgent = decodeURIComponent(client.userAgent); } catch {}
+
+  // User ID from platform session
+  const userId = client.platformUserId || 'nserewa-user';
+
+  return {
+    'Gov-Client-Connection-Method':      'WEB_APP_VIA_SERVER',
+    'Gov-Client-Device-ID':              deviceId,
+    'Gov-Client-Timezone':               timezone,
+    'Gov-Client-Screens':                screens,
+    'Gov-Client-Window-Size':            winSize,
+    'Gov-Client-Browser-JS-User-Agent': userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Gov-Client-Browser-Do-Not-Track':   doNotTrack,
+    'Gov-Client-Public-IP': req.headers.get('CF-Connecting-IP') || 'unknown',
+    'Gov-Client-Public-IP-Timestamp': new Date().toISOString(),
+    'Gov-Vendor-Forwarded': `for=${req.headers.get('CF-Connecting-IP') || 'unknown'}`,
+    'Gov-Client-Public-IP-Timestamp':    now,
+    'Gov-Client-User-IDs': 'gg=EightSubmissions',
+    'Gov-Vendor-Version':                'eight-submissions-frontend=1.0.0&eight-submissions-backend=1.0.0',
+    'Gov-Vendor-Public-IP':              workerIp,
+    'Gov-Vendor-Forwarded':              `by=${workerIp}&for=${clientIp}`,
+    'Gov-Vendor-Product-Name':           'Eight%20Submissions',
+    'Gov-Vendor-License-IDs': 'hmrc-application-id=zyqLKNddsLVjFrXDFtxQhnFtoW0H',
+  };
+};
+
 // ── Supabase helpers ──────────────────────────────────────────
 const dbRead = (env, table, query = '') => fetch(`${env.SUPABASE_URL}/rest/v1/${table}${query}`, {
   headers: { 'apikey': env.SUPABASE_ANON_KEY, 'Authorization': `Bearer ${env.SUPABASE_ANON_KEY}` },
@@ -60,6 +105,7 @@ const dbWrite = (env, table, body, method = 'POST') => fetch(`${env.SUPABASE_URL
 // ── Routes ────────────────────────────────────────────────────
 router.options('*', (req) => new Response(null, { status: 204, headers: cors(req) }));
 router.get('/health', (req) => json({ status: 'ok' }, 200, req));
+
 
 // Register
 router.post('/users/register', async (req, env) => {
@@ -217,11 +263,15 @@ router.get('/businesses', async (req, env) => {
 router.post('/businesses', async (req, env) => {
   const session = getSession(req);
   if (!session) return err('Not authenticated', 401, req);
-  const { businessName, businessType, status, vrn, utr, crn } = await req.json();
+  const { businessName, businessType, status, vrn, utr, crn, nino } = await req.json();
   if (!businessName || !businessType) return err('businessName and businessType required', 400, req);
   const now = new Date().toISOString();
-  const res = await dbWrite(env, 'Business', { id: crypto.randomUUID(), userId: session.userId, businessName, businessType, status: status || 'ACTIVE', vrn: vrn || null, utr: utr || null, crn: crn || null, createdAt: now, updatedAt: now });
-  if (!res.ok) return err('Failed to create business', 500, req);
+  const res = await dbWrite(env, 'Business', { id: crypto.randomUUID(), userId: session.userId, businessName, businessType, status: status || 'ACTIVE', vrn: vrn || null, utr: utr || null, crn: crn || null, nino: nino || null, createdAt: now, updatedAt: now });
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error('Business create error:', errText);
+    return err('Failed to create business: ' + errText, 500, req);
+  }
   return json((await res.json())[0], 201, req);
 });
 
@@ -244,10 +294,10 @@ router.get('/submissions/obligations/vat/:businessId', async (req, env) => {
   const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
   const tokens = await tokenRes.json();
   if (!tokens[0]) return err('HMRC not connected', 401, req);
-  const from = new Date(); from.setFullYear(from.getFullYear() - 1);
-  const to = new Date(); to.setFullYear(to.getFullYear() + 1);
+  const from = new Date(); from.setMonth(from.getMonth() - 12);
+  const to = new Date();
   const hmrcRes = await fetch(`${env.HMRC_API_BASE_URL}/organisations/vat/${biz.vrn}/obligations?from=${from.toISOString().split('T')[0]}&to=${to.toISOString().split('T')[0]}&status=O`, {
-    headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.1.0+json' },
+    headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.1.0+json' },
   });
   const data = await hmrcRes.json();
   return json({ obligations: data.obligations || [] }, 200, req);
@@ -265,7 +315,7 @@ router.post('/submissions/vat/nil', async (req, env) => {
   if (!tokens[0]) return err('HMRC not connected', 401, req);
   const payload = { periodKey, vatDueSales: 0, vatDueAcquisitions: 0, totalVatDue: 0, vatReclaimedCurrPeriod: 0, netVatDue: 0, totalValueSalesExVAT: 0, totalValuePurchasesExVAT: 0, totalValueGoodsSuppliedExVAT: 0, totalAcquisitionsExVAT: 0, finalised: true };
   const hmrcRes = await fetch(`${env.HMRC_API_BASE_URL}/organisations/vat/${biz.vrn}/returns`, {
-    method: 'POST', headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.1.0+json' }, body: JSON.stringify(payload),
+    method: 'POST', headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.1.0+json' }, body: JSON.stringify(payload),
   });
   const hmrcData = await hmrcRes.json();
   const now = new Date().toISOString();
@@ -275,11 +325,262 @@ router.post('/submissions/vat/nil', async (req, env) => {
   return json({ message: 'Nil VAT return submitted', submission: sub }, 201, req);
 });
 
+router.post('/submissions/vat/full', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+
+  const { businessId, periodKey, periodStart, periodEnd,
+          box1, box2, box4, box6, box7, box8, box9 } = await req.json();
+
+  const vatDueSales            = Math.round((parseFloat(box1) || 0) * 100) / 100;
+  const vatDueAcquisitions     = Math.round((parseFloat(box2) || 0) * 100) / 100;
+  const totalVatDue            = Math.round((vatDueSales + vatDueAcquisitions) * 100) / 100;
+  const vatReclaimedCurrPeriod = Math.round((parseFloat(box4) || 0) * 100) / 100;
+  const netVatDue              = Math.round(Math.abs(totalVatDue - vatReclaimedCurrPeriod) * 100) / 100;
+  const totalValueSalesExVAT         = Math.round(parseFloat(box6) || 0);
+  const totalValuePurchasesExVAT     = Math.round(parseFloat(box7) || 0);
+  const totalValueGoodsSuppliedExVAT = Math.round(parseFloat(box8) || 0);
+  const totalAcquisitionsExVAT       = Math.round(parseFloat(box9) || 0);
+
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&select=vrn&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.vrn) return err('Business not found or no VRN', 404, req);
+
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+
+  const payload = {
+    periodKey,
+    vatDueSales, vatDueAcquisitions, totalVatDue,
+    vatReclaimedCurrPeriod, netVatDue,
+    totalValueSalesExVAT, totalValuePurchasesExVAT,
+    totalValueGoodsSuppliedExVAT, totalAcquisitionsExVAT,
+    finalised: true,
+  };
+
+  const hmrcRes = await fetch(`${env.HMRC_API_BASE_URL}/organisations/vat/${biz.vrn}/returns`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${tokens[0].accessToken}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/vnd.hmrc.1.0+json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const hmrcData = await hmrcRes.json();
+  const now = new Date().toISOString();
+  const sub = {
+    id: crypto.randomUUID(), businessId,
+    taxType: 'VAT', submissionType: 'FULL',
+    periodKey, periodStart, periodEnd,
+    status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED',
+    hmrcReceiptId: hmrcData.formBundleNumber || null,
+    payload: JSON.stringify(payload),
+    hmrcResponse: JSON.stringify(hmrcData),
+    submittedAt: now, createdAt: now, updatedAt: now,
+  };
+  await dbWrite(env, 'Submission', sub);
+  if (!hmrcRes.ok) return err(hmrcData.message || 'HMRC rejected submission', 400, req);
+  return json({ message: 'VAT return submitted', receipt: hmrcData, submission: sub }, 201, req);
+});
+
 router.get('/submissions/:businessId', async (req, env) => {
   const session = getSession(req);
   if (!session) return err('Not authenticated', 401, req);
   const res = await dbRead(env, 'Submission', `?businessId=eq.${req.params.businessId}&order=createdAt.desc`);
   return json({ submissions: await res.json() }, 200, req);
+});
+
+
+// ── Business Details — HMRC lookup by NINO (Business Details MTD 2.0) ─────────
+router.get('/businesses/hmrc/details/:nino', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/individuals/business/details/${req.params.nino}/list`,
+    { headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.2.0+json' } }
+  );
+  const data = await hmrcRes.json();
+  if (!hmrcRes.ok) return err(data.message || 'HMRC lookup failed', hmrcRes.status, req);
+  return json({ businesses: data.listOfBusinesses || data.businessDetails || [] }, 200, req);
+});
+
+// ── ITSA — HMRC Self-Employment business list (Self Employment Business MTD 5.0) ─
+router.get('/submissions/itsa/businesses/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${req.params.businessId}&userId=eq.${session.userId}&select=nino&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.nino) return err('Business not found or no NINO set', 404, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}`,
+    { headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.5.0+json' } }
+  );
+  const data = await hmrcRes.json();
+  if (!hmrcRes.ok) return err(data.message || 'Failed to fetch SE businesses', hmrcRes.status, req);
+  return json({ seBusinesses: data.businessDetails || [] }, 200, req);
+});
+
+// ── ITSA — Obligations (Obligations MTD 3.0) ───────────────────────────────────
+router.get('/submissions/obligations/itsa/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${req.params.businessId}&userId=eq.${session.userId}&select=nino&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.nino) return err('Business not found or no NINO set', 404, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/obligations/details/${biz.nino}/income-and-expenditure?typeOfBusiness=self-employment&status=Open`,
+    { headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.3.0+json' } }
+  );
+  const data = await hmrcRes.json();
+  if (!hmrcRes.ok) return err(data.message || 'Failed to fetch ITSA obligations', hmrcRes.status, req);
+  return json({ obligations: data.obligations || [] }, 200, req);
+});
+
+// ── ITSA — Submit Periodic Update (Self Employment Business MTD 5.0) ───────────
+router.post('/submissions/itsa/periodic', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const { businessId, selfEmploymentId, periodId, fromDate, toDate, income, expenses } = await req.json();
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&select=nino&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.nino) return err('Business not found or no NINO set', 404, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const hmrcExpenses = (expenses.consolidated !== undefined && expenses.consolidated !== '')
+    ? { consolidatedExpenses: { amount: parseFloat(expenses.consolidated) || 0 } }
+    : {
+        costOfGoods:              { amount: parseFloat(expenses.costOfGoods) || 0 },
+        paymentsToSubContractors: { amount: 0 },
+        wagesAndStaffCosts:       { amount: parseFloat(expenses.staffCosts) || 0 },
+        carVanTravelExpenses:     { amount: parseFloat(expenses.travelCosts) || 0 },
+        premisesRunningCosts:     { amount: parseFloat(expenses.premisesRunningCosts) || 0 },
+        professionalFees:         { amount: parseFloat(expenses.professionalFees) || 0 },
+        otherExpenses:            { amount: parseFloat(expenses.otherExpenses) || 0 },
+      };
+  const payload = {
+    incomes:  { turnover: { amount: parseFloat(income.turnover) || 0 }, other: { amount: parseFloat(income.other) || 0 } },
+    expenses: hmrcExpenses,
+  };
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${selfEmploymentId}/period/${periodId}`,
+    { method: 'PUT', headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json' }, body: JSON.stringify(payload) }
+  );
+  const hmrcData = await hmrcRes.json();
+  const now = new Date().toISOString();
+  const sub = { id: crypto.randomUUID(), businessId, taxType: 'ITSA', submissionType: 'PERIODIC', periodKey: periodId, periodStart: fromDate, periodEnd: toDate, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.transactionReference || null, payload: JSON.stringify(payload), hmrcResponse: JSON.stringify(hmrcData), submittedAt: now, createdAt: now, updatedAt: now };
+  await dbWrite(env, 'Submission', sub);
+  if (!hmrcRes.ok) return err(hmrcData.message || 'HMRC rejected periodic submission', 400, req);
+  return json({ message: 'Periodic update submitted', submission: sub }, 201, req);
+});
+
+// ── ITSA — Trigger Calculation (Individual Calculations MTD 8.0) ───────────────
+router.post('/submissions/itsa/calculate', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const { businessId, taxYear } = await req.json();
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&select=nino&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.nino) return err('Business not found or no NINO set', 404, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment`,
+    { method: 'POST', headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json' }, body: JSON.stringify({ taxYear }) }
+  );
+  const data = await hmrcRes.json();
+  if (!hmrcRes.ok) return err(data.message || 'Calculation trigger failed', hmrcRes.status, req);
+  return json({ calculationId: data.calculationId, taxYear }, 200, req);
+});
+
+// ── ITSA — Get Calculation Result (Individual Calculations MTD 8.0) ────────────
+router.get('/submissions/itsa/calculate/:businessId/:calculationId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${req.params.businessId}&userId=eq.${session.userId}&select=nino&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.nino) return err('Business not found or no NINO set', 404, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${req.params.calculationId}`,
+    { headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.8.0+json' } }
+  );
+  const data = await hmrcRes.json();
+  if (!hmrcRes.ok) return err(data.message || 'Failed to get calculation', hmrcRes.status, req);
+  return json({ calculation: data }, 200, req);
+});
+
+// ── ITSA — Final Declaration / Crystallisation (Individual Calculations MTD 8.0)
+router.post('/submissions/itsa/crystallise', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const { businessId, calculationId, taxYear } = await req.json();
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&select=nino&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.nino) return err('Business not found or no NINO set', 404, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${calculationId}/final-declaration`,
+    { method: 'POST', headers: { ...buildFraudHeaders(req), 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json' }, body: JSON.stringify({}) }
+  );
+  const hmrcData = await hmrcRes.json();
+  const now = new Date().toISOString();
+  const sub = { id: crypto.randomUUID(), businessId, taxType: 'ITSA', submissionType: 'CRYSTALLISATION', periodKey: taxYear, periodStart: null, periodEnd: null, status: hmrcRes.ok ? 'ACCEPTED' : 'REJECTED', hmrcReceiptId: hmrcData.transactionReference || null, payload: JSON.stringify({ calculationId, taxYear }), hmrcResponse: JSON.stringify(hmrcData), submittedAt: now, createdAt: now, updatedAt: now };
+  await dbWrite(env, 'Submission', sub);
+  if (!hmrcRes.ok) return err(hmrcData.message || 'Final declaration failed', 400, req);
+  return json({ message: 'Final declaration submitted', submission: sub }, 201, req);
+});
+
+
+// ── ITSA — Create SE Business source (Self Employment Business MTD 5.0)
+router.post('/submissions/itsa/create-se-business/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const bizRes = await dbRead(env, 'Business', `?id=eq.${req.params.businessId}&userId=eq.${session.userId}&select=nino&limit=1`);
+  const biz = (await bizRes.json())[0];
+  if (!biz?.nino) return err('Business not found or no NINO set', 404, req);
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens[0]) return err('HMRC not connected', 401, req);
+  const { tradingName, commencementDate, accountingType } = await req.json();
+  const payload = {
+    accountingPeriod: { start: commencementDate || '2023-04-06', end: '2024-04-05' },
+    accountingType: accountingType || 'CASH',
+    commencementDate: commencementDate || '2023-04-06',
+    tradingName: tradingName || 'Self Employment Business',
+  };
+  const hmrcRes = await fetch(
+    `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${tokens[0].accessToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/vnd.hmrc.5.0+json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  const data = await hmrcRes.json();
+  if (!hmrcRes.ok) return err(data.message || 'Failed to create SE business', hmrcRes.status, req);
+  return json({ message: 'SE business created', selfEmploymentId: data.selfEmploymentId, data }, 201, req);
 });
 
 router.all('*', (req) => err('Not found', 404, req));

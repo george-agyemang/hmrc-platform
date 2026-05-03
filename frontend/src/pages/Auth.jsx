@@ -45,7 +45,7 @@ export function Register({ onLogin }) {
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
         <div className="flex justify-center mb-6"><div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center"><span className="text-white text-xl font-bold">M</span></div></div>
         <h1 className="text-2xl font-bold text-center text-gray-900 mb-1">Create your account</h1>
-        <p className="text-center text-gray-500 text-sm mb-6">MTD Digital Reporting Platform</p>
+        <p className="text-center text-gray-500 text-sm mb-6">Eight Submissions — MTD</p>
         {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">{error}</div>}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Full name</label><input type="text" value={form.name} onChange={e => setForm(f=>({...f,name:e.target.value}))} className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500" placeholder="Jane Smith"/></div>
