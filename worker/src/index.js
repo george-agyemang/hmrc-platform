@@ -61,6 +61,29 @@ const dbWrite = (env, table, body, method = 'POST') => fetch(`${env.SUPABASE_URL
 router.options('*', (req) => new Response(null, { status: 204, headers: cors(req) }));
 router.get('/health', (req) => json({ status: 'ok' }, 200, req));
 
+// TEMP TEST ROUTE — remove before production
+router.post('/submissions/vat/test-save', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const { businessId } = await req.json();
+  const now = new Date().toISOString();
+  const sub = {
+    id: crypto.randomUUID(), businessId, taxType: 'VAT', submissionType: 'FULL',
+    periodKey: 'TEST', periodStart: '2024-01-01', periodEnd: '2024-03-31',
+    status: 'ACCEPTED', hmrcReceiptId: 'TEST-' + Date.now(),
+    payload: { test: true, vatDueSales: 100 },
+    hmrcResponse: { formBundleNumber: 'TEST', processingDate: now },
+    submittedAt: now, createdAt: now, updatedAt: now,
+  };
+  const saveRes = await dbWrite(env, 'Submission', sub);
+  if (!saveRes.ok) {
+    const e = await saveRes.text();
+    console.error('Test save error:', e);
+    return err('Save failed: ' + e, 500, req);
+  }
+  return json({ message: 'Test save succeeded', submission: sub }, 201, req);
+});
+
 // Register
 router.post('/users/register', async (req, env) => {
   try {
