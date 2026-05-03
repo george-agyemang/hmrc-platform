@@ -5,7 +5,7 @@ const router = Router();
 const cors = (req) => ({
   'Access-Control-Allow-Origin': req?.headers?.get('Origin') || 'https://nserewa.pages.dev',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Hmrc-Client-Data',
   'Access-Control-Allow-Credentials': 'true',
 });
 const json = (data, status = 200, req) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...cors(req) } });

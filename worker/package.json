@@ -11,6 +11,7 @@
     "bcryptjs": "^3.0.3",
     "itty-router": "^4.2.2",
     "jsonwebtoken": "^9.0.3",
+    "otpauth": "^9.5.1",
     "uuid": "^13.0.0"
   }
 }
