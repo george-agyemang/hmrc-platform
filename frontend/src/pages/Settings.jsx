@@ -8,7 +8,7 @@ export default function Settings({ user }) {
       <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-emerald-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">M</span>
+            <span className="text-white font-bold text-sm">8</span>
           </div>
           <span className="font-semibold text-gray-900">MTD Platform</span>
         </div>
