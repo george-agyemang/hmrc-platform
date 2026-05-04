@@ -34,7 +34,7 @@ export default function TermsPage() {
       <h2 style={{fontSize:'1.2rem',fontWeight:600,marginTop:'2rem'}}>9. Governing law</h2>
       <p>These terms are governed by the laws of England and Wales.</p>
       <h2 style={{fontSize:'1.2rem',fontWeight:600,marginTop:'2rem'}}>10. Contact</h2>
-      <p>For any queries regarding these terms please email <a href="mailto:george@eightsubmissions.com" style={{color:'#059669'}}>george@eightsubmissions.com</a>.</p>
+      <p>For any queries regarding these terms please email <a href="mailto:enquiries@eightsubmissions.com" style={{color:'#059669'}}>enquiries@eightsubmissions.com</a>.</p>
       <p style={{marginTop:'3rem',fontSize:'0.9rem'}}><Link to="/" style={{color:'#059669'}}>← Back to Eight Submissions</Link></p>
     </div>
   );

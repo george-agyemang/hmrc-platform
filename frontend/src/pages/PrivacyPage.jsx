@@ -27,11 +27,11 @@ export default function PrivacyPage() {
       <h2 style={{fontSize:'1.2rem',fontWeight:600,marginTop:'2rem'}}>5. Data retention</h2>
       <p>We retain your account data for as long as you have an active account. Submission history is retained for 7 years in line with HMRC record-keeping requirements. You may request deletion of your account at any time by contacting us.</p>
       <h2 style={{fontSize:'1.2rem',fontWeight:600,marginTop:'2rem'}}>6. Your rights</h2>
-      <p>Under UK GDPR you have the right to access, correct, or delete your personal data. To exercise these rights please contact us at <a href="mailto:george@eightsubmissions.com" style={{color:'#059669'}}>george@eightsubmissions.com</a>.</p>
+      <p>Under UK GDPR you have the right to access, correct, or delete your personal data. To exercise these rights please contact us at <a href="mailto:enquiries@eightsubmissions.com" style={{color:'#059669'}}>enquiries@eightsubmissions.com</a>.</p>
       <h2 style={{fontSize:'1.2rem',fontWeight:600,marginTop:'2rem'}}>7. Cookies</h2>
       <p>Eight Submissions uses only essential session cookies required for authentication. We do not use tracking or advertising cookies.</p>
       <h2 style={{fontSize:'1.2rem',fontWeight:600,marginTop:'2rem'}}>8. Contact</h2>
-      <p>For any privacy-related queries please email <a href="mailto:george@eightsubmissions.com" style={{color:'#059669'}}>george@eightsubmissions.com</a>.</p>
+      <p>For any privacy-related queries please email <a href="mailto:enquiries@eightsubmissions.com" style={{color:'#059669'}}>enquiries@eightsubmissions.com</a>.</p>
       <p style={{marginTop:'3rem',fontSize:'0.9rem'}}><Link to="/" style={{color:'#059669'}}>← Back to Eight Submissions</Link></p>
     </div>
   );
