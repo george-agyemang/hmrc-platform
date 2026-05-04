@@ -87,7 +87,7 @@ export default function LandingPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: 'white', fontWeight: 700, fontSize: '1rem',
             fontFamily: "'Lora', serif",
-          }}>E</div>
+          }}>8</div>
           <span style={{ fontWeight: 600, fontSize: '1rem', letterSpacing: '-0.02em' }}>Eight Submissions</span>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -325,7 +325,7 @@ export default function LandingPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: 'white', fontWeight: 700, fontSize: '0.85rem',
             fontFamily: "'Lora', serif",
-          }}>E</div>
+          }}>8</div>
           <span style={{ color: 'white', fontWeight: 600 }}>Eight Submissions</span>
         </div>
         <div style={{ display: 'flex', gap: 24, justifyContent: 'center', marginBottom: 20, flexWrap: 'wrap' }}>

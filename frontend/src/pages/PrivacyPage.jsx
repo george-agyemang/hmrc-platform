@@ -4,7 +4,7 @@ export default function PrivacyPage() {
   return (
     <div style={{fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",maxWidth:760,margin:'0 auto',padding:'40px 24px',color:'#111',lineHeight:1.7}}>
       <header style={{display:'flex',alignItems:'center',gap:12,marginBottom:40}}>
-        <div style={{width:36,height:36,background:'#059669',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:'1rem'}}>E</div>
+        <div style={{width:36,height:36,background:'#059669',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:700,fontSize:'1rem'}}>8</div>
         <strong>Eight Submissions</strong>
       </header>
       <h1 style={{fontSize:'2rem',fontWeight:700,marginBottom:4}}>Privacy Policy</h1>
