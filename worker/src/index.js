@@ -136,6 +136,11 @@ router.post('/users/login', async (req, env) => {
 
     if (passwordHash !== user.passwordHash) return err('Invalid email or password', 401, req);
 
+    if (user.mfaEnabled) {
+      const mfaToken = await signJwt({ userId: user.id, email: user.email, mfaPending: true }, env.JWT_SECRET, 300);
+      return json({ mfaRequired: true, mfaToken }, 200, req);
+    }
+
     const token = await signJwt({ userId: user.id, email: user.email }, env.JWT_SECRET);
     return json({ user: { id: user.id, email: user.email, name: user.name }, token }, 200, req);
   } catch (e) {
@@ -552,10 +557,99 @@ router.get('/submissions/:businessId', async (req, env) => {
   return json({ submissions: await res.json() }, 200, req);
 });
 
-router.all('*', (req) => err('Not found', 404, req));
+
 
 export default {
   async fetch(request, env, ctx) {
     return router.handle(request, env, ctx);
   },
 };
+
+// ── MFA Routes ────────────────────────────────────────────────
+
+// Setup: generate TOTP secret and return QR URI
+router.post('/auth/mfa/setup', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    const { TOTP, Secret } = await import('otpauth');
+    const secret = new Secret({ size: 20 });
+    const totp = new TOTP({ issuer: 'Eight Submissions', label: session.email, algorithm: 'SHA1', digits: 6, period: 30, secret });
+    const uri = totp.toString();
+    await fetch(`${env.SUPABASE_URL}/rest/v1/User?id=eq.${session.userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ mfaTotpSecret: secret.base32 }),
+    });
+    return json({ uri, secret: secret.base32 }, 200, req);
+  } catch (e) {
+    console.error('MFA setup error:', e.message);
+    return err('MFA setup failed', 500, req);
+  }
+});
+
+// Verify setup: confirm code and enable MFA
+router.post('/auth/mfa/verify-setup', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    const { code } = await req.json();
+    if (!code) return err('Code required', 400, req);
+    const userRes = await dbRead(env, 'User', `?id=eq.${session.userId}&select=mfaTotpSecret&limit=1`);
+    const users = await userRes.json();
+    if (!users[0]?.mfaTotpSecret) return err('MFA setup not started', 400, req);
+    const { TOTP, Secret } = await import('otpauth');
+    const totp = new TOTP({ issuer: 'Eight Submissions', label: session.email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(users[0].mfaTotpSecret) });
+    const delta = totp.validate({ token: code.replace(/\s/g, ''), window: 1 });
+    if (delta === null) return err('Invalid code', 401, req);
+    await fetch(`${env.SUPABASE_URL}/rest/v1/User?id=eq.${session.userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ mfaEnabled: true, mfaType: 'TOTP' }),
+    });
+    return json({ success: true }, 200, req);
+  } catch (e) {
+    console.error('MFA verify-setup error:', e.message);
+    return err('MFA verification failed', 500, req);
+  }
+});
+
+// Validate: check TOTP during login, return full session
+router.post('/auth/mfa/validate', async (req, env) => {
+  try {
+    const { mfaToken, code } = await req.json();
+    if (!mfaToken || !code) return err('Token and code required', 400, req);
+    const payload = verifyJwt(mfaToken, env.JWT_SECRET);
+    if (!payload?.mfaPending) return err('Invalid or expired MFA token', 401, req);
+    const userRes = await dbRead(env, 'User', `?id=eq.${payload.userId}&select=id,email,name,mfaTotpSecret&limit=1`);
+    const users = await userRes.json();
+    const user = users[0];
+    if (!user?.mfaTotpSecret) return err('MFA not configured', 400, req);
+    const { TOTP, Secret } = await import('otpauth');
+    const totp = new TOTP({ issuer: 'Eight Submissions', label: user.email, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(user.mfaTotpSecret) });
+    const delta = totp.validate({ token: code.replace(/\s/g, ''), window: 1 });
+    if (delta === null) return err('Invalid code', 401, req);
+    const token = await signJwt({ userId: user.id, email: user.email }, env.JWT_SECRET);
+    return json({ user: { id: user.id, email: user.email, name: user.name }, token }, 200, req);
+  } catch (e) {
+    console.error('MFA validate error:', e.message);
+    return err('MFA validation failed', 500, req);
+  }
+});
+
+// Disable MFA
+router.post('/auth/mfa/disable', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    await fetch(`${env.SUPABASE_URL}/rest/v1/User?id=eq.${session.userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ mfaEnabled: false, mfaType: null, mfaTotpSecret: null }),
+    });
+    return json({ success: true }, 200, req);
+  } catch (e) {
+    return err('Failed to disable MFA', 500, req);
+  }
+});
+router.all('*', (req) => err('Not found', 404, req));

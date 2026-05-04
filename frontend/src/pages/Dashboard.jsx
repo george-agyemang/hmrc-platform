@@ -105,6 +105,7 @@ export default function Dashboard({ user, onLogout }) {
           {!hmrcConnected && <button onClick={() => authService.connectHmrc(user?.id)} className="text-sm bg-amber-50 border border-amber-300 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-100">⚠ Connect HMRC</button>}
           {hmrcConnected && <span className="text-sm text-emerald-600 font-medium">✓ HMRC Connected</span>}
           <span className="text-sm text-gray-500">{user?.email}</span>
+          <Link to="/settings" className="text-sm text-gray-500 hover:text-gray-800">Settings</Link>
           <button onClick={handleLogout} className="text-sm text-gray-500 hover:text-gray-800">Sign out</button>
         </div>
       </header>

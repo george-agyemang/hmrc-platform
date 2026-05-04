@@ -7,6 +7,7 @@ import { AuthSuccess, AuthError } from './pages/AuthCallbacks.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import AddBusiness from './pages/AddBusiness.jsx';
 import SubmitReturn from './pages/SubmitReturn.jsx';
+import Settings from './pages/Settings.jsx';
 import ITSAReturn from './pages/ITSAReturn.jsx';
 
 function AppRoutes() {
@@ -20,6 +21,7 @@ function AppRoutes() {
       <Route path="/connect" element={<ProtectedRoute><ConnectHmrc /></ProtectedRoute>} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard user={user} onLogout={logout} /></ProtectedRoute>} />
       <Route path="/businesses/new" element={<ProtectedRoute><AddBusiness /></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute><Settings user={user} /></ProtectedRoute>} />
       <Route path="/businesses/:businessId/submit" element={<ProtectedRoute><SubmitReturn /></ProtectedRoute>} />
         <Route path="/businesses/:businessId/itsa" element={<ProtectedRoute><ITSAReturn /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />

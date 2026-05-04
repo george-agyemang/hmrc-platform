@@ -50,3 +50,10 @@ export const submissionService = {
 };
 
 export default api;
+
+export const mfaService = {
+  setup: () => api.post('/auth/mfa/setup').then(r => r.data),
+  verifySetup: (code) => api.post('/auth/mfa/verify-setup', { code }).then(r => r.data),
+  validate: (mfaToken, code) => api.post('/auth/mfa/validate', { mfaToken, code }).then(r => r.data),
+  disable: () => api.post('/auth/mfa/disable').then(r => r.data),
+};
