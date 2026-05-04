@@ -89,7 +89,7 @@ export default function Dashboard({ user, onLogout }) {
     finally { setSubLoading(false); }
   };
 
-  const handleLogout = async () => { await authService.logout(); onLogout(); navigate('/login'); };
+  const handleLogout = async () => { await authService.logout(); onLogout(); navigate('/'); };
   const toggleRow = (id) => setExpandedRow(prev => prev === id ? null : id);
 
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>;

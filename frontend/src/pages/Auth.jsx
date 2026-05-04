@@ -40,7 +40,7 @@ export function Login({ onLogin }) {
   if (mfaRequired) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-        <div className="flex justify-center mb-6"><div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center"><span className="text-white text-xl font-bold">8</span></div></div>
+        <div className="flex justify-center mb-6"><a href="/"><div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center"><span className="text-white text-xl font-bold">8</span></div></a></div>
         <h1 className="text-2xl font-bold text-center text-gray-900 mb-1">Two-factor authentication</h1>
         <p className="text-center text-gray-500 text-sm mb-6">Enter the 6-digit code from your authenticator app</p>
         {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">{error}</div>}
@@ -59,7 +59,7 @@ export function Login({ onLogin }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-        <div className="flex justify-center mb-6"><div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center"><span className="text-white text-xl font-bold">8</span></div></div>
+        <div className="flex justify-center mb-6"><a href="/"><div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center"><span className="text-white text-xl font-bold">8</span></div></a></div>
         <h1 className="text-2xl font-bold text-center text-gray-900 mb-1">Welcome back</h1>
         <p className="text-center text-gray-500 text-sm mb-6">Sign in to your Eight Submissions account</p>
         {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">{error}</div>}
@@ -88,7 +88,7 @@ export function Register({ onLogin }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md">
-        <div className="flex justify-center mb-6"><div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center"><span className="text-white text-xl font-bold">8</span></div></div>
+        <div className="flex justify-center mb-6"><a href="/"><div className="w-12 h-12 bg-emerald-600 rounded-xl flex items-center justify-center"><span className="text-white text-xl font-bold">8</span></div></a></div>
         <h1 className="text-2xl font-bold text-center text-gray-900 mb-1">Create account</h1>
         <p className="text-center text-gray-500 text-sm mb-6">Get started with Eight Submissions</p>
         {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">{error}</div>}
