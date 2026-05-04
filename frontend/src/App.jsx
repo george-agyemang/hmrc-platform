@@ -9,6 +9,8 @@ import AddBusiness from './pages/AddBusiness.jsx';
 import SubmitReturn from './pages/SubmitReturn.jsx';
 import Settings from './pages/Settings.jsx';
 import ITSAReturn from './pages/ITSAReturn.jsx';
+import PrivacyPage from './pages/PrivacyPage.jsx';
+import TermsPage from './pages/TermsPage.jsx';
 
 function AppRoutes() {
   const { user, login, logout } = useAuth();
@@ -24,6 +26,8 @@ function AppRoutes() {
       <Route path="/settings" element={<ProtectedRoute><Settings user={user} /></ProtectedRoute>} />
       <Route path="/businesses/:businessId/submit" element={<ProtectedRoute><SubmitReturn /></ProtectedRoute>} />
         <Route path="/businesses/:businessId/itsa" element={<ProtectedRoute><ITSAReturn /></ProtectedRoute>} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
       <Route path="*" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
     </Routes>
   );
