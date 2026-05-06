@@ -21,19 +21,38 @@ const STATUS_BADGE = {
 function PayloadDetail({ payload }) {
   let data;
   try { data = JSON.parse(payload); } catch { return null; }
-  const entries = Object.entries(data).filter(([k]) => k !== 'periodKey' && k !== 'finalised');
-  if (!entries.length) return null;
+  if (!data) return null;
+
+  const BOX_LABELS = {
+    vatDueSales:            { box: 'Box 1', label: 'VAT due on sales and other outputs' },
+    vatDueAcquisitions:     { box: 'Box 2', label: 'VAT due on acquisitions from EU' },
+    totalVatDue:            { box: 'Box 3', label: 'Total VAT due' },
+    vatReclaimedCurrPeriod: { box: 'Box 4', label: 'VAT reclaimed on purchases' },
+    netVatDue:              { box: 'Box 5', label: 'Net VAT to pay or reclaim' },
+    totalValueSalesExVAT:   { box: 'Box 6', label: 'Total value of sales ex VAT' },
+    totalValuePurchasesExVAT: { box: 'Box 7', label: 'Total value of purchases ex VAT' },
+    totalValueGoodsSuppliedExVAT: { box: 'Box 8', label: 'Total value of goods supplied ex VAT' },
+    totalAcquisitionsExVAT: { box: 'Box 9', label: 'Total acquisitions ex VAT' },
+  };
+
+  const boxes = Object.entries(BOX_LABELS)
+    .filter(([k]) => data[k] !== undefined)
+    .map(([k, meta]) => ({ ...meta, value: data[k] }));
+
+  if (!boxes.length) return null;
+
   return (
     <tr className="bg-gray-50">
-      <td colSpan={6} className="px-4 pb-3 pt-1">
-        <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs">
-          {entries.map(([k, v]) => (
-            <div key={k} className="flex justify-between border-b border-gray-100 py-0.5">
-              <dt className="text-gray-500 capitalize">{k.replace(/([A-Z])/g, ' $1').trim()}</dt>
-              <dd className="font-mono text-gray-800">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</dd>
+      <td colSpan={6} className="px-4 pb-4 pt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {boxes.map(({ box, label, value }) => (
+            <div key={box} className="bg-white rounded-lg border border-gray-200 px-4 py-3">
+              <div className="text-xs font-bold text-emerald-700 mb-1">{box}</div>
+              <div className="text-sm text-gray-600 mb-2 leading-tight">{label}</div>
+              <div className="text-lg font-bold text-gray-900">£{Number(value).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</div>
             </div>
           ))}
-        </dl>
+        </div>
       </td>
     </tr>
   );
