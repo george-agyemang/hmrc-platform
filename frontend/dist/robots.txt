@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /settings
+Disallow: /businesses
+Disallow: /connect
+Sitemap: https://www.eightsubmissions.com/sitemap.xml

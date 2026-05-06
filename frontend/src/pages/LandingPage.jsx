@@ -73,22 +73,22 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#FAFAF7', color: '#1a1a1a', lineHeight: 1.6 }}>
+    <div style={{ fontFamily: "'DM Sans', sans-serif", background: '#ecfccb', color: '#1a1a1a', lineHeight: 1.6 }}>
 
       {/* NAV */}
       <nav style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '20px 40px', background: '#FAFAF7',
+        padding: '20px 40px', background: '#ecfccb',
         borderBottom: '1px solid #e8e4dc', position: 'sticky', top: 0, zIndex: 100,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
-            width: 34, height: 34, background: '#065f46', borderRadius: 8,
+            width: 44, height: 44, background: '#065f46', borderRadius: 10,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: 'white', fontWeight: 700, fontSize: '1rem',
             fontFamily: "'Lora', serif",
           }}>8</div>
-          <span style={{ fontWeight: 600, fontSize: '1rem', letterSpacing: '-0.02em' }}>Eight Submissions</span>
+          <span style={{ fontWeight: 700, fontSize: '1.2rem', letterSpacing: '-0.02em' }}>Eight Submissions</span>
         </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <Link to="/login" style={{
@@ -179,7 +179,7 @@ export default function LandingPage() {
       </section>
 
       {/* FEATURES */}
-      <section style={{ padding: '80px 24px', background: '#FAFAF7' }}>
+      <section style={{ padding: '80px 24px', background: '#ecfccb' }}>
         <div style={{ maxWidth: 960, margin: '0 auto' }}>
           <h2 style={{
             fontFamily: "'Lora', serif", fontSize: 'clamp(1.8rem, 3vw, 2.4rem)',
@@ -250,7 +250,7 @@ export default function LandingPage() {
       </section>
 
       {/* FAQ */}
-      <section style={{ padding: '80px 24px', background: '#FAFAF7' }}>
+      <section style={{ padding: '80px 24px', background: '#ecfccb' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
           <h2 style={{
             fontFamily: "'Lora', serif", fontSize: 'clamp(1.8rem, 3vw, 2.4rem)',
