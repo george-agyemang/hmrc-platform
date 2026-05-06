@@ -652,4 +652,252 @@ router.post('/auth/mfa/disable', async (req, env) => {
     return err('Failed to disable MFA', 500, req);
   }
 });
+
+// ── ITSA v2 Endpoints ────────────────────────────────────────────────────────
+
+// 1. GET /itsa/obligations/:businessId
+router.get('/itsa/obligations/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    const { businessId } = req.params;
+    const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&limit=1`);
+    const bizzes = await bizRes.json();
+    if (!bizzes || bizzes.length === 0) return err('Business not found', 404, req);
+    const biz = bizzes[0];
+    if (!biz.nino) return err('Business has no NINO', 400, req);
+
+    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+    const tokens = await tokenRes.json();
+    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+
+    const hmrcRes = await fetch(
+      `${env.HMRC_API_BASE_URL}/obligations/details/${biz.nino}/income-and-expenditure?typeOfBusiness=self-employment&businessId=${biz.hmrcIncomeSourceId || businessId}`,
+      { headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.3.0+json', 'Gov-Test-Scenario': 'OPEN', ...buildFraudHeaders(req) } }
+    );
+    const data = await hmrcRes.json();
+    return json(data, hmrcRes.status, req);
+  } catch (e) {
+    console.error('ITSA obligations error:', e.message);
+    return err('Failed to fetch ITSA obligations', 500, req);
+  }
+});
+
+// 2. POST /itsa/quarterly/:businessId
+router.post('/itsa/quarterly/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    const { businessId } = req.params;
+    const body = await req.json();
+    const { periodStartDate, periodEndDate, income = {}, expenses = {} } = body;
+    if (!periodStartDate || !periodEndDate) return err('periodStartDate and periodEndDate required', 400, req);
+
+    const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&limit=1`);
+    const bizzes = await bizRes.json();
+    if (!bizzes || bizzes.length === 0) return err('Business not found', 404, req);
+    const biz = bizzes[0];
+    if (!biz.nino) return err('Business has no NINO', 400, req);
+
+    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+    const tokens = await tokenRes.json();
+    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+
+    const payload = {
+      periodStartDate,
+      periodEndDate,
+      incomes: {
+        turnover: { amount: income.turnover ?? 0 },
+        other:    { amount: income.other    ?? 0 }
+      },
+      expenses: {
+        costOfGoods:                  { amount: expenses.costOfGoods        ?? 0 },
+        staffCosts:                   { amount: expenses.staffCosts         ?? 0 },
+        travelCosts:                  { amount: expenses.travelCosts        ?? 0 },
+        premisesRunningCosts:         { amount: expenses.premises           ?? 0 },
+        adminCosts:                   { amount: expenses.admin              ?? 0 },
+        advertisingCosts:             { amount: expenses.advertising        ?? 0 },
+        professionalFees:             { amount: expenses.professionalFees   ?? 0 },
+        interestOnBankOtherLoans:     { amount: expenses.interest           ?? 0 },
+        irrecoverableDebts:           { amount: expenses.badDebts           ?? 0 },
+        other:                        { amount: expenses.other              ?? 0 }
+      }
+    };
+
+    const hmrcRes = await fetch(
+      `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${biz.hmrcIncomeSourceId || businessId}/period`,
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.3.0+json', ...buildFraudHeaders(req) },
+        body: JSON.stringify(payload)
+      }
+    );
+    const data = await hmrcRes.json();
+
+    if (hmrcRes.ok) {
+      await dbWrite(env, 'Submission', {
+        id: crypto.randomUUID(), businessId, taxType: 'ITSA',
+        periodKey: `${periodStartDate}_${periodEndDate}`,
+        periodStart: periodStartDate, periodEnd: periodEndDate,
+        submissionType: 'QUARTERLY', hmrcReceiptId: data.periodId || null,
+        status: 'ACCEPTED', payload: JSON.stringify(payload),
+        hmrcResponse: JSON.stringify(data),
+        submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      });
+    }
+    return json(data, hmrcRes.status, req);
+  } catch (e) {
+    console.error('ITSA quarterly error:', e.message);
+    return err('Failed to submit quarterly update', 500, req);
+  }
+});
+
+// 3. GET /itsa/calculation/:businessId
+router.get('/itsa/calculation/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    const { businessId } = req.params;
+    const url = new URL(req.url);
+    const taxYear = url.searchParams.get('taxYear') || '2024-25';
+
+    const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&limit=1`);
+    const bizzes = await bizRes.json();
+    if (!bizzes || bizzes.length === 0) return err('Business not found', 404, req);
+    const biz = bizzes[0];
+    if (!biz.nino) return err('Business has no NINO', 400, req);
+
+    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+    const tokens = await tokenRes.json();
+    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+
+    // Step 1 – trigger calculation
+    const triggerRes = await fetch(
+      `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}`,
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) },
+        body: JSON.stringify({ finalDeclaration: false })
+      }
+    );
+    const triggerData = await triggerRes.json();
+    if (!triggerRes.ok) return json(triggerData, triggerRes.status, req);
+    const calculationId = triggerData.id;
+
+    // Step 2 – retrieve result
+    const calcRes = await fetch(
+      `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/${calculationId}`,
+      { headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) } }
+    );
+    const calcData = await calcRes.json();
+    return json({ calculationId, ...calcData }, calcRes.status, req);
+  } catch (e) {
+    console.error('ITSA calculation error:', e.message);
+    return err('Failed to get tax calculation', 500, req);
+  }
+});
+
+// 4. POST /itsa/eops/:businessId
+router.post('/itsa/eops/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    const { businessId } = req.params;
+    const body = await req.json();
+    const { taxYear, accountingPeriodStartDate, accountingPeriodEndDate } = body;
+    if (!taxYear || !accountingPeriodStartDate || !accountingPeriodEndDate)
+      return err('taxYear, accountingPeriodStartDate and accountingPeriodEndDate required', 400, req);
+
+    const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&limit=1`);
+    const bizzes = await bizRes.json();
+    if (!bizzes || bizzes.length === 0) return err('Business not found', 404, req);
+    const biz = bizzes[0];
+    if (!biz.nino) return err('Business has no NINO', 400, req);
+
+    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+    const tokens = await tokenRes.json();
+    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+
+    const payload = {
+      typeOfBusiness: 'self-employment',
+      businessId: biz.hmrcIncomeSourceId || businessId,
+      accountingPeriod: { startDate: accountingPeriodStartDate, endDate: accountingPeriodEndDate },
+      finalised: true
+    };
+
+    const hmrcRes = await fetch(
+      `${env.HMRC_API_BASE_URL}/individuals/self-assessment/end-of-period-statement/${biz.nino}`,
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.3.0+json', ...buildFraudHeaders(req) },
+        body: JSON.stringify(payload)
+      }
+    );
+    const data = await hmrcRes.json();
+
+    if (hmrcRes.ok) {
+      await dbWrite(env, 'Submission', {
+        id: crypto.randomUUID(), businessId, taxType: 'ITSA',
+        periodKey: taxYear, periodStart: accountingPeriodStartDate, periodEnd: accountingPeriodEndDate,
+        submissionType: 'EOPS', hmrcReceiptId: null,
+        status: 'ACCEPTED', payload: JSON.stringify(payload),
+        hmrcResponse: JSON.stringify(data),
+        submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      });
+    }
+    return json(data, hmrcRes.status, req);
+  } catch (e) {
+    console.error('ITSA EOPS error:', e.message);
+    return err('Failed to submit EOPS', 500, req);
+  }
+});
+
+// 5. POST /itsa/crystallise/:businessId
+router.post('/itsa/crystallise/:businessId', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  try {
+    const { businessId } = req.params;
+    const body = await req.json();
+    const { taxYear, calculationId } = body;
+    if (!taxYear || !calculationId) return err('taxYear and calculationId required', 400, req);
+
+    const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&limit=1`);
+    const bizzes = await bizRes.json();
+    if (!bizzes || bizzes.length === 0) return err('Business not found', 404, req);
+    const biz = bizzes[0];
+    if (!biz.nino) return err('Business has no NINO', 400, req);
+
+    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
+    const tokens = await tokenRes.json();
+    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+
+    const hmrcRes = await fetch(
+      `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/${calculationId}/final-declaration`,
+      {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) },
+        body: JSON.stringify({})
+      }
+    );
+    const data = await hmrcRes.json();
+
+    if (hmrcRes.ok) {
+      await dbWrite(env, 'Submission', {
+        id: crypto.randomUUID(), businessId, taxType: 'ITSA',
+        periodKey: taxYear, periodStart: null, periodEnd: null,
+        submissionType: 'CRYSTALLISATION', hmrcReceiptId: calculationId,
+        status: 'ACCEPTED', payload: JSON.stringify({ taxYear, calculationId }),
+        hmrcResponse: JSON.stringify(data),
+        submittedAt: new Date().toISOString(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      });
+    }
+    return json(data, hmrcRes.status, req);
+  } catch (e) {
+    console.error('ITSA crystallise error:', e.message);
+    return err('Failed to crystallise', 500, req);
+  }
+});
+
+
 router.all('*', (req) => err('Not found', 404, req));
