@@ -432,7 +432,7 @@ router.get('/submissions/itsa/businesses/:businessId', async (req, env) => {
   const tokens = await tokenRes.json();
   if (!tokens[0]) return err('HMRC not connected', 401, req);
   const hmrcRes = await fetch(`${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}`, {
-    headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) },
+    headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
   });
   const data = await hmrcRes.json();
   if (!hmrcRes.ok) return err(data.message || 'HMRC lookup failed', hmrcRes.status, req);
@@ -452,7 +452,7 @@ router.post('/submissions/itsa/create-se-business/:businessId', async (req, env)
   const body = await req.json();
   const hmrcRes = await fetch(`${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}`, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) },
+    headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
     body: JSON.stringify(body),
   });
   const data = await hmrcRes.json();
@@ -474,7 +474,7 @@ router.post('/submissions/itsa/periodic', async (req, env) => {
   const payload = { fromDate, toDate, incomes: incomes || {}, deductions: deductions || {} };
   const hmrcRes = await fetch(
     `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${selfEmploymentId}/period`,
-    { method: 'POST', headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) }, body: JSON.stringify(payload) }
+    { method: 'POST', headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) }, body: JSON.stringify(payload) }
   );
   const hmrcData = await hmrcRes.json();
   const now = new Date().toISOString();
@@ -733,7 +733,7 @@ router.post('/itsa/quarterly/:businessId', async (req, env) => {
       `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${biz.hmrcIncomeSourceId || businessId}/cumulative/${taxYear}`,
       {
         method: 'PUT',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', 'Gov-Test-Scenario': 'STATEFUL', ...buildFraudHeaders(req) },
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', 'Gov-Test-Scenario': 'STATEFUL', ...buildFraudHeaders(req) },
         body: JSON.stringify(filteredPayload)
       }
     );
@@ -778,11 +778,11 @@ router.get('/itsa/calculation/:businessId', async (req, env) => {
 
     // Step 1 – trigger calculation
     const triggerRes = await fetch(
-      `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}`,
+      `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/in-year`,
       {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) },
-        body: JSON.stringify({ finalDeclaration: false })
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
+        body: '{}'
       }
     );
     const triggerData = await triggerRes.json();
@@ -792,7 +792,7 @@ router.get('/itsa/calculation/:businessId', async (req, env) => {
     // Step 2 – retrieve result
     const calcRes = await fetch(
       `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/${calculationId}`,
-      { headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) } }
+      { headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) } }
     );
     const calcData = await calcRes.json();
     return json({ calculationId, ...calcData }, calcRes.status, req);
@@ -881,7 +881,7 @@ router.post('/itsa/crystallise/:businessId', async (req, env) => {
       `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/${calculationId}/final-declaration`,
       {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', ...buildFraudHeaders(req) },
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
         body: JSON.stringify({})
       }
     );
