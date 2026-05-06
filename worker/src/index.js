@@ -690,8 +690,8 @@ router.post('/itsa/quarterly/:businessId', async (req, env) => {
   try {
     const { businessId } = req.params;
     const body = await req.json();
-    const { periodStartDate, periodEndDate, income = {}, expenses = {} } = body;
-    if (!periodStartDate || !periodEndDate) return err('periodStartDate and periodEndDate required', 400, req);
+    const { periodStartDate, periodEndDate, taxYear, income = {}, expenses = {} } = body;
+    if (!periodStartDate || !periodEndDate || !taxYear) return err('periodStartDate, periodEndDate and taxYear required', 400, req);
 
     const bizRes = await dbRead(env, 'Business', `?id=eq.${businessId}&userId=eq.${session.userId}&limit=1`);
     const bizzes = await bizRes.json();
@@ -704,32 +704,37 @@ router.post('/itsa/quarterly/:businessId', async (req, env) => {
     if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
 
     const payload = {
-      periodStartDate,
-      periodEndDate,
-      incomes: {
-        turnover: { amount: income.turnover ?? 0 },
-        other:    { amount: income.other    ?? 0 }
+    // Strip zero/null fields — HMRC rejects empty numeric fields
+    const stripZeros = obj => Object.fromEntries(Object.entries(obj).filter(([_,v]) => v !== 0 && v != null));
+    const filteredPayload = { fromDate: payload.fromDate, toDate: payload.toDate,
+      ...(Object.keys(stripZeros(payload.income)).length  ? { income:   stripZeros(payload.income)   } : {}),
+      ...(Object.keys(stripZeros(payload.expenses)).length ? { expenses: stripZeros(payload.expenses) } : {}) };
+      fromDate: periodStartDate,
+      toDate:   periodEndDate,
+      income: {
+        turnover: income.turnover ?? 0,
+        other:    income.other    ?? 0
       },
       expenses: {
-        costOfGoods:                  { amount: expenses.costOfGoods        ?? 0 },
-        staffCosts:                   { amount: expenses.staffCosts         ?? 0 },
-        travelCosts:                  { amount: expenses.travelCosts        ?? 0 },
-        premisesRunningCosts:         { amount: expenses.premises           ?? 0 },
-        adminCosts:                   { amount: expenses.admin              ?? 0 },
-        advertisingCosts:             { amount: expenses.advertising        ?? 0 },
-        professionalFees:             { amount: expenses.professionalFees   ?? 0 },
-        interestOnBankOtherLoans:     { amount: expenses.interest           ?? 0 },
-        irrecoverableDebts:           { amount: expenses.badDebts           ?? 0 },
-        other:                        { amount: expenses.other              ?? 0 }
+        costOfGoods:              expenses.costOfGoods      ?? 0,
+        staffCosts:               expenses.staffCosts       ?? 0,
+        travelCosts:              expenses.travelCosts      ?? 0,
+        premisesRunningCosts:     expenses.premises         ?? 0,
+        adminCosts:               expenses.admin            ?? 0,
+        advertisingCosts:         expenses.advertising      ?? 0,
+        professionalFees:         expenses.professionalFees ?? 0,
+        interestOnBankOtherLoans: expenses.interest         ?? 0,
+        irrecoverableDebts:       expenses.badDebts         ?? 0,
+        other:                    expenses.other            ?? 0
       }
     };
 
     const hmrcRes = await fetch(
-      `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${biz.hmrcIncomeSourceId || businessId}/period`,
+      `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${biz.hmrcIncomeSourceId || businessId}/cumulative/${taxYear}`,
       {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.3.0+json', ...buildFraudHeaders(req) },
-        body: JSON.stringify(payload)
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.5.0+json', 'Gov-Test-Scenario': 'STATEFUL', ...buildFraudHeaders(req) },
+        body: JSON.stringify(filteredPayload)
       }
     );
     const data = await hmrcRes.json();
