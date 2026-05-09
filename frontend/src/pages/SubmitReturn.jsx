@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useDraft } from '../hooks/useDraft'
 
 const API = import.meta.env.VITE_API_URL
 
@@ -90,7 +91,10 @@ export default function SubmitReturn() {
   }, [])
 
   function setBox(key, raw) {
-    setBoxes((prev) => ({ ...prev, [key]: raw.replace(/[^0-9.]/g, '') }))
+    const cleaned = raw.replace(/[^0-9.]/g, '')
+    const updated = { ...boxes, [key]: cleaned }
+    setBoxes(updated)
+    triggerAutoSave(updated)
   }
 
   async function handleSubmit(e) {
@@ -119,6 +123,7 @@ export default function SubmitReturn() {
       setObligations((prev) => prev.filter((o) => o.periodKey !== selected.periodKey))
       setSelected(null)
       setBoxes(emptyBoxes)
+      clearDraft()
     } catch {
       setError('Network error. Please try again.')
     } finally {
@@ -274,7 +279,26 @@ export default function SubmitReturn() {
             )}
 
             <div className="flex items-center gap-3 pt-1">
-              <button type="submit" disabled={submitting}
+              <div className="flex items-center justify-between pt-2 pb-1">
+            <span className="text-xs text-gray-400">
+              {draftStatus === 'saving' && (
+                <span className="flex items-center gap-1 text-gray-400">
+                  <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                  Saving…
+                </span>
+              )}
+              {draftStatus === 'saved' && <span className="text-green-600">✓ Draft saved</span>}
+              {draftStatus === 'idle' && draftSavedAt && (
+                <span>Saved {draftSavedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+              )}
+              {draftStatus === 'error' && <span className="text-red-500">Save failed</span>}
+            </span>
+            <button type="button" onClick={() => saveDraft(boxes)} disabled={draftStatus === 'saving' || !selected}
+              className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition">
+              Save &amp; continue later
+            </button>
+          </div>
+          <button type="submit" disabled={submitting}
                 className="flex-1 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 transition">
                 {submitting ? 'Submitting…' : mode === 'nil' ? 'Submit Nil Return to HMRC' : 'Submit VAT Return to HMRC'}
               </button>

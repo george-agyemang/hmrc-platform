@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 
 const API = import.meta.env.VITE_API_URL
@@ -90,7 +90,7 @@ export default function ITSAReturn() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || data.error || 'Submission failed')
       setLastReceipt({ type:'Quarterly update', period: fmt(activeObl.periodStartDate) + ' - ' + fmt(activeObl.periodEndDate), taxYear: ty })
-      setView('success'); resetForm(); setActiveObl(null)
+      setView('success'); resetForm(); setActiveObl(null); clearDraft()
     } catch(e) { setError(e.message) }
     finally { setWorking(false) }
   }
@@ -213,7 +213,26 @@ export default function ITSAReturn() {
           </label>
 
           <div className="flex gap-3">
-            <button onClick={()=>{setView('timeline');setError(null)}} className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">Cancel</button>
+            <div className="flex items-center justify-between py-2 mb-1">
+                <span className="text-xs text-gray-400">
+                  {draftStatus === 'saving' && (
+                    <span className="flex items-center gap-1 text-gray-400">
+                      <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>
+                      Saving…
+                    </span>
+                  )}
+                  {draftStatus === 'saved' && <span className="text-green-600">✓ Draft saved</span>}
+                  {draftStatus === 'idle' && draftSavedAt && (
+                    <span>Saved {draftSavedAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                  )}
+                  {draftStatus === 'error' && <span className="text-red-500">Save failed</span>}
+                </span>
+                <button type="button" onClick={saveDraft} disabled={draftStatus === 'saving'}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 transition">
+                  Save &amp; continue later
+                </button>
+              </div>
+              <button onClick={()=>{setView('timeline');setError(null)}} className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">Cancel</button>
             <button onClick={submitEops} disabled={working || !eopsConfirmed} className="flex-1 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50 transition">
               {working ? 'Submitting EOPS...' : 'Submit End of Period Statement'}
             </button>

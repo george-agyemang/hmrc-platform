@@ -398,7 +398,7 @@ const getValidHmrcToken = async (env, userId) => {
     body: JSON.stringify({
       accessToken: newTokens.access_token,
       refreshToken: newTokens.refresh_token || t.refreshToken,
-      expiresAt: newExpiresAt,
+      expires_at: newExpiresAt,
       updatedAt: new Date().toISOString()
     })
   });
@@ -758,11 +758,6 @@ router.post('/itsa/quarterly/:businessId', async (req, env) => {
     const accessToken = await getValidHmrcToken(env, session.userId).catch(e => { throw new Error(e.message) });
 
     const payload = {
-    // Strip zero/null fields — HMRC rejects empty numeric fields
-    const stripZeros = obj => Object.fromEntries(Object.entries(obj).filter(([_,v]) => v !== 0 && v != null));
-    const filteredPayload = { fromDate: payload.fromDate, toDate: payload.toDate,
-      ...(Object.keys(stripZeros(payload.income)).length  ? { income:   stripZeros(payload.income)   } : {}),
-      ...(Object.keys(stripZeros(payload.expenses)).length ? { expenses: stripZeros(payload.expenses) } : {}) };
       fromDate: periodStartDate,
       toDate:   periodEndDate,
       income: {
@@ -783,6 +778,11 @@ router.post('/itsa/quarterly/:businessId', async (req, env) => {
       }
     };
 
+    // Strip zero/null fields — HMRC rejects empty numeric fields
+    const stripZeros = obj => Object.fromEntries(Object.entries(obj).filter(([_,v]) => v !== 0 && v != null));
+    const filteredPayload = { fromDate: payload.fromDate, toDate: payload.toDate,
+      ...(Object.keys(stripZeros(payload.income)).length  ? { income:   stripZeros(payload.income)   } : {}),
+      ...(Object.keys(stripZeros(payload.expenses)).length ? { expenses: stripZeros(payload.expenses) } : {}) };
     const hmrcRes = await fetch(
       `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${biz.hmrcIncomeSourceId || businessId}/cumulative/${taxYear}`,
       {
@@ -952,5 +952,58 @@ router.post('/itsa/crystallise/:businessId', async (req, env) => {
   }
 });
 
+
+
+// ── Draft save (upsert) ─────────────────────────────────────────
+router.post('/drafts/save', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const { type, businessId, periodKey, data } = await req.json();
+  if (!type || !periodKey) return err('type and periodKey required', 400, req);
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/submission_drafts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': env.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Prefer': 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({
+      user_id: session.userId, type,
+      business_id: businessId ?? null,
+      period_key: periodKey, data,
+      saved_at: new Date().toISOString(),
+    }),
+  });
+  if (!res.ok) return err('Failed to save draft', 500, req);
+  return jsonResponse({ ok: true });
+});
+
+// ── Draft load ───────────────────────────────────────────────────
+router.get('/drafts/:type/:periodKey', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const { type, periodKey } = req.params;
+  const businessId = new URL(req.url).searchParams.get('businessId');
+  let query = `?user_id=eq.${session.userId}&type=eq.${type}&period_key=eq.${encodeURIComponent(periodKey)}&limit=1`;
+  if (businessId) query += `&business_id=eq.${businessId}`;
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/submission_drafts${query}`, {
+    headers: { 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+  });
+  const rows = await res.json();
+  return jsonResponse(rows[0] ?? null);
+});
+
+// ── Draft delete (after successful submission) ───────────────────
+router.delete('/drafts/:type/:periodKey', async (req, env) => {
+  const session = getSession(req);
+  if (!session) return err('Not authenticated', 401, req);
+  const { type, periodKey } = req.params;
+  await fetch(
+    `${env.SUPABASE_URL}/rest/v1/submission_drafts?user_id=eq.${session.userId}&type=eq.${type}&period_key=eq.${encodeURIComponent(periodKey)}`,
+    { method: 'DELETE', headers: { 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` } }
+  );
+  return jsonResponse({ ok: true });
+});
 
 router.all('*', (req) => err('Not found', 404, req));
