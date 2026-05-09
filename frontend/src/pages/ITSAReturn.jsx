@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 
 const API = import.meta.env.VITE_API_URL
 const fmt = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'
+const fmtGBP = (n) => '£' + Number(n||0).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})
 const taxYearFromDates = (start) => {
   const d = new Date(start), y = d.getFullYear(), m = d.getMonth()
   const sy = m < 3 || (m === 3 && d.getDate() < 6) ? y - 1 : y
@@ -29,6 +30,10 @@ export default function ITSAReturn() {
     costOfGoods:'', staffCosts:'', travelCosts:'', premises:'',
     admin:'', advertising:'', professionalFees:'', interest:'', badDebts:'', other:''
   })
+  const [eopsConfirmed, setEopsConfirmed]     = useState(false)
+  const [calculation, setCalculation]         = useState(null)
+  const [calcLoading, setCalcLoading]         = useState(false)
+  const [finalConfirmed, setFinalConfirmed]   = useState(false)
 
   useEffect(() => { load() }, [businessId])
 
@@ -57,21 +62,66 @@ export default function ITSAReturn() {
 
   function openForm(obl) { setActiveObl(obl); resetForm(); setError(null); setView('form') }
 
+  function openEops() { setError(null); setEopsConfirmed(false); setView('eops') }
+
+  async function openFinal() {
+    setError(null); setCalculation(null); setFinalConfirmed(false); setView('final')
+    setCalcLoading(true)
+    try {
+      const res = await fetch(API + '/itsa/calculation/' + businessId + '?taxYear=' + taxYear, { headers: h })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || data.error || 'Could not load calculation')
+      setCalculation(data)
+    } catch(e) { setError(e.message) }
+    finally { setCalcLoading(false) }
+  }
+
   async function submitQuarterly() {
     if (!activeObl) return
     setWorking(true); setError(null)
     try {
-      const taxYear = taxYearFromDates(activeObl.periodStartDate)
+      const ty = taxYearFromDates(activeObl.periodStartDate)
       const body = {
-        taxYear, periodStartDate: activeObl.periodStartDate, periodEndDate: activeObl.periodEndDate,
+        taxYear: ty, periodStartDate: activeObl.periodStartDate, periodEndDate: activeObl.periodEndDate,
         income: { turnover: Number(income.turnover)||0, other: Number(income.other)||0 },
         expenses: Object.fromEntries(Object.entries(expenses).map(([k,v])=>[k,Number(v)||0]))
       }
       const res = await fetch(API + '/itsa/quarterly/' + businessId, { method:'POST', headers:h, body:JSON.stringify(body) })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || data.error || 'Submission failed')
-      setLastReceipt({ period: fmt(activeObl.periodStartDate) + ' - ' + fmt(activeObl.periodEndDate), taxYear })
+      setLastReceipt({ type:'Quarterly update', period: fmt(activeObl.periodStartDate) + ' - ' + fmt(activeObl.periodEndDate), taxYear: ty })
       setView('success'); resetForm(); setActiveObl(null)
+    } catch(e) { setError(e.message) }
+    finally { setWorking(false) }
+  }
+
+  async function submitEops() {
+    setWorking(true); setError(null)
+    try {
+      const body = {
+        taxYear,
+        accountingPeriodStartDate: quarters[0].periodStartDate,
+        accountingPeriodEndDate: quarters[quarters.length-1].periodEndDate
+      }
+      const res = await fetch(API + '/itsa/eops/' + businessId, { method:'POST', headers:h, body:JSON.stringify(body) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || data.error || 'EOPS submission failed')
+      setLastReceipt({ type:'End of Period Statement', period: 'Tax year ' + taxYear, taxYear })
+      setView('success')
+    } catch(e) { setError(e.message) }
+    finally { setWorking(false) }
+  }
+
+  async function submitFinal() {
+    if (!calculation?.calculationId) return
+    setWorking(true); setError(null)
+    try {
+      const body = { taxYear, calculationId: calculation.calculationId }
+      const res = await fetch(API + '/itsa/crystallise/' + businessId, { method:'POST', headers:h, body:JSON.stringify(body) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || data.error || 'Final declaration failed')
+      setLastReceipt({ type:'Final Declaration', period: 'Tax year ' + taxYear, taxYear })
+      setView('success')
     } catch(e) { setError(e.message) }
     finally { setWorking(false) }
   }
@@ -82,6 +132,7 @@ export default function ITSAReturn() {
 
   const fulfilledCount = quarters.filter(o => o.status?.toLowerCase() === 'fulfilled').length
   const allDone = quarters.length > 0 && quarters.every(o => o.status?.toLowerCase() === 'fulfilled')
+  const taxYear = quarters[0] ? taxYearFromDates(quarters[0].periodStartDate) : null
 
   const stages = quarters.map((o,i) => ({
     label: quarterLabel(i),
@@ -90,10 +141,8 @@ export default function ITSAReturn() {
     status: o.status?.toLowerCase() === 'fulfilled' ? 'done' : o.status?.toLowerCase() === 'open' ? 'open' : 'locked',
     obl: o
   }))
-  stages.push({ label:'EOPS', sub:'End of Period Statement', due:'After Q4', status: allDone ? 'open' : 'locked', obl:null })
-  stages.push({ label:'Final', sub:'Final Declaration', due:'After EOPS', status: allDone ? 'open' : 'locked', obl:null })
-
-  const taxYear = quarters[0] ? taxYearFromDates(quarters[0].periodStartDate) : null
+  stages.push({ label:'EOPS', sub:'End of Period Statement', due:'After Q4', status: allDone ? 'open' : 'locked', obl:null, action:'eops' })
+  stages.push({ label:'Final', sub:'Final Declaration', due:'After EOPS', status: allDone ? 'open' : 'locked', obl:null, action:'final' })
 
   if (loading) return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -114,11 +163,137 @@ export default function ITSAReturn() {
             </svg>
           </div>
           <h2 className="text-xl font-semibold text-gray-900">Submitted to HMRC</h2>
-          {lastReceipt && <div className="text-sm text-gray-500"><p>{lastReceipt.period}</p><p>Tax year {lastReceipt.taxYear}</p></div>}
+          {lastReceipt && (
+            <div className="text-sm text-gray-500 space-y-1">
+              <p className="font-medium text-gray-700">{lastReceipt.type}</p>
+              <p>{lastReceipt.period}</p>
+            </div>
+          )}
           <div className="flex gap-3 justify-center pt-2">
             <button onClick={()=>{setView('timeline');load()}} className="px-5 py-2.5 rounded-lg bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 transition">Back to timeline</button>
             <button onClick={()=>navigate('/dashboard')} className="px-5 py-2.5 rounded-lg border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">Dashboard</button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (view === 'eops') return (
+    <div className="min-h-screen bg-gray-50 px-4 py-12">
+      <div className="max-w-2xl mx-auto space-y-6">
+        <button onClick={()=>{setView('timeline');setError(null)}} className="text-sm text-violet-600 hover:underline">Back to timeline</button>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-widest text-violet-600 bg-violet-50 px-2 py-0.5 rounded">End of Period Statement</span>
+            <h2 className="text-lg font-bold text-gray-900 mt-2">Tax year {taxYear}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Confirm your self-employment income and expenses are complete for this tax year.</p>
+          </div>
+
+          <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Accounting period</span>
+              <span className="font-medium text-gray-900">{quarters[0] ? fmt(quarters[0].periodStartDate) : '-'} – {quarters[quarters.length-1] ? fmt(quarters[quarters.length-1].periodEndDate) : '-'}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Quarters submitted</span>
+              <span className="font-medium text-gray-900">{quarters.length} of {quarters.length}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-500">Business</span>
+              <span className="font-medium text-gray-900">{business?.businessName}</span>
+            </div>
+          </div>
+
+          {error && <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>}
+
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" checked={eopsConfirmed} onChange={e=>setEopsConfirmed(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"/>
+            <span className="text-sm text-gray-700">I confirm that the information I have provided is correct and complete to the best of my knowledge and belief. I understand that I may have to pay financial penalties if I give false information.</span>
+          </label>
+
+          <div className="flex gap-3">
+            <button onClick={()=>{setView('timeline');setError(null)}} className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">Cancel</button>
+            <button onClick={submitEops} disabled={working || !eopsConfirmed} className="flex-1 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50 transition">
+              {working ? 'Submitting EOPS...' : 'Submit End of Period Statement'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+
+  if (view === 'final') return (
+    <div className="min-h-screen bg-gray-50 px-4 py-12">
+      <div className="max-w-2xl mx-auto space-y-6">
+        <button onClick={()=>{setView('timeline');setError(null)}} className="text-sm text-violet-600 hover:underline">Back to timeline</button>
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 space-y-5">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-widest text-violet-600 bg-violet-50 px-2 py-0.5 rounded">Final Declaration</span>
+            <h2 className="text-lg font-bold text-gray-900 mt-2">Tax year {taxYear}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Review your tax calculation and submit your final declaration to HMRC.</p>
+          </div>
+
+          {calcLoading && (
+            <div className="flex items-center gap-3 py-4">
+              <div className="w-5 h-5 border-2 border-violet-600 border-t-transparent rounded-full animate-spin"/>
+              <span className="text-sm text-gray-500">Loading tax calculation...</span>
+            </div>
+          )}
+
+          {calculation && !calcLoading && (
+            <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tax Estimate</p>
+              {calculation.metadata && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Calculation ID</span>
+                    <span className="font-mono text-xs text-gray-700">{calculation.calculationId?.slice(0,16)}...</span>
+                  </div>
+                  {calculation.calculation?.taxCalculation?.totalIncomeTaxAndNicsDue != null && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Tax & NICs due</span>
+                      <span className="font-bold text-gray-900">{fmtGBP(calculation.calculation.taxCalculation.totalIncomeTaxAndNicsDue)}</span>
+                    </div>
+                  )}
+                  {calculation.inputs?.incomeSources && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Income sources</span>
+                      <span className="text-gray-700">{calculation.inputs.incomeSources.businessIncomeSources?.length || 0} business(es)</span>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!calculation.metadata && (
+                <p className="text-sm text-gray-500">Calculation retrieved. Calculation ID: <span className="font-mono text-xs">{calculation.calculationId}</span></p>
+              )}
+            </div>
+          )}
+
+          {error && <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">{error}</div>}
+
+          {!calcLoading && (
+            <>
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm text-amber-800 font-medium">Important</p>
+                <p className="text-xs text-amber-700 mt-1">By submitting this final declaration you are confirming that, to the best of your knowledge, the information you have provided is correct and complete. HMRC may charge a penalty if you submit incorrect information.</p>
+              </div>
+
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" checked={finalConfirmed} onChange={e=>setFinalConfirmed(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"/>
+                <span className="text-sm text-gray-700">I declare that the information I have provided is correct and complete. I understand this is a legal declaration.</span>
+              </label>
+
+              <div className="flex gap-3">
+                <button onClick={()=>{setView('timeline');setError(null)}} className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition">Cancel</button>
+                <button onClick={submitFinal} disabled={working || !finalConfirmed || (!calculation && !error)}
+                  className="flex-1 rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50 transition">
+                  {working ? 'Submitting declaration...' : 'Submit Final Declaration'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -176,7 +351,7 @@ export default function ITSAReturn() {
             <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 flex justify-between items-center">
               <span className="text-sm font-medium text-gray-600">Net profit / loss</span>
               <span className={"text-lg font-bold " + (net >= 0 ? 'text-green-700' : 'text-red-600')}>
-                {net < 0 ? '-' : ''}£{Math.abs(net).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                {net < 0 ? '-' : ''}{fmtGBP(Math.abs(net))}
               </span>
             </div>
             <div className="flex gap-3">
@@ -237,7 +412,8 @@ export default function ITSAReturn() {
                     <p className="text-xs text-gray-400">{s.due}</p>
                   </div>
                   {isOpen && s.obl && <button onClick={()=>openForm(s.obl)} className="flex-none rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700 transition">Submit</button>}
-                  {isOpen && !s.obl && <button disabled className="flex-none rounded-lg bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-400 cursor-not-allowed">Coming soon</button>}
+                  {isOpen && s.action==='eops' && <button onClick={openEops} className="flex-none rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700 transition">Submit</button>}
+                  {isOpen && s.action==='final' && <button onClick={openFinal} className="flex-none rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white hover:bg-violet-700 transition">Declare</button>}
                   {isDone && <div className="flex-none w-8 h-8 rounded-full bg-green-100 flex items-center justify-center"><svg className="w-4 h-4 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7"/></svg></div>}
                 </div>
                 {i < stages.length-1 && <div className="ml-9 pl-5 pb-1"><div className={"w-px h-3 "+(isDone?'bg-green-200':'bg-gray-200')}/></div>}
