@@ -217,7 +217,7 @@ router.get('/auth/callback', async (req, env) => {
     const existingData = await existingToken.json();
 
     if (existingData.length > 0) {
-      await fetch(`${env.SUPABASE_URL}/rest/v1/HmrcToken?userId=eq.${userId}`, {
+      await fetch(`${env.SUPABASE_URL}/rest/v1/HmrcToken?userId=eq.${userId}&select=id`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
         body: JSON.stringify({ accessToken: tokens.access_token, refreshToken: tokens.refresh_token || '', scope: tokens.scope || '', expiresAt: new Date(Date.now() + (tokens.expires_in || 14400) * 1000).toISOString(), updatedAt: now }),
@@ -350,6 +350,64 @@ const buildFraudHeaders = (req) => {
     'Gov-Client-MAC-Addresses': '',
   };
 };
+
+// ── HMRC token refresh ───────────────────────────────────────────────────────
+const getValidHmrcToken = async (env, userId) => {
+  // Read current token
+  const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${userId}&limit=1`);
+  const tokens = await tokenRes.json();
+  if (!tokens || tokens.length === 0) throw new Error('No HMRC token found — please connect HMRC first');
+
+  const t = tokens[0];
+  const expiresAt = new Date(t.expiresAt).getTime();
+  const now = Date.now();
+
+  // If token expires in more than 5 minutes, use it as-is
+  if (expiresAt - now > 5 * 60 * 1000) return t.accessToken;
+
+  // Token expired or expiring soon — refresh it
+  if (!t.refreshToken) throw new Error('HMRC token expired and no refresh token available — please reconnect HMRC');
+
+  const refreshRes = await fetch(env.HMRC_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: t.refreshToken,
+      client_id: env.HMRC_CLIENT_ID,
+      client_secret: env.HMRC_CLIENT_SECRET
+    })
+  });
+
+  if (!refreshRes.ok) {
+    const err = await refreshRes.json().catch(() => ({}));
+    throw new Error('HMRC token refresh failed: ' + (err.error_description || err.error || refreshRes.status));
+  }
+
+  const newTokens = await refreshRes.json();
+  const newExpiresAt = new Date(Date.now() + (newTokens.expires_in || 14400) * 1000).toISOString();
+
+  // Update token in Supabase
+  await fetch(`${env.SUPABASE_URL}/rest/v1/HmrcToken?userId=eq.${userId}&select=id`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': env.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`
+    },
+    body: JSON.stringify({
+      accessToken: newTokens.access_token,
+      refreshToken: newTokens.refresh_token || t.refreshToken,
+      expiresAt: newExpiresAt,
+      updatedAt: new Date().toISOString()
+    })
+  });
+
+  console.log('HMRC token refreshed for user', userId);
+  return newTokens.access_token;
+};
+
+
 
 // Full 9-box VAT return
 router.post('/submissions/vat/full', async (req, env) => {
@@ -667,13 +725,11 @@ router.get('/itsa/obligations/:businessId', async (req, env) => {
     const biz = bizzes[0];
     if (!biz.nino) return err('Business has no NINO', 400, req);
 
-    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
-    const tokens = await tokenRes.json();
-    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+    const accessToken = await getValidHmrcToken(env, session.userId).catch(e => { throw new Error(e.message) });
 
     const hmrcRes = await fetch(
       `${env.HMRC_API_BASE_URL}/obligations/details/${biz.nino}/income-and-expenditure?typeOfBusiness=self-employment&businessId=${biz.hmrcIncomeSourceId || businessId}`,
-      { headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.3.0+json', 'Gov-Test-Scenario': 'OPEN', ...buildFraudHeaders(req) } }
+      { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/vnd.hmrc.3.0+json', 'Gov-Test-Scenario': 'OPEN', ...buildFraudHeaders(req) } }
     );
     const data = await hmrcRes.json();
     return json(data, hmrcRes.status, req);
@@ -699,9 +755,7 @@ router.post('/itsa/quarterly/:businessId', async (req, env) => {
     const biz = bizzes[0];
     if (!biz.nino) return err('Business has no NINO', 400, req);
 
-    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
-    const tokens = await tokenRes.json();
-    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+    const accessToken = await getValidHmrcToken(env, session.userId).catch(e => { throw new Error(e.message) });
 
     const payload = {
     // Strip zero/null fields — HMRC rejects empty numeric fields
@@ -733,7 +787,7 @@ router.post('/itsa/quarterly/:businessId', async (req, env) => {
       `${env.HMRC_API_BASE_URL}/individuals/business/self-employment/${biz.nino}/${biz.hmrcIncomeSourceId || businessId}/cumulative/${taxYear}`,
       {
         method: 'PUT',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', 'Gov-Test-Scenario': 'STATEFUL', ...buildFraudHeaders(req) },
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', 'Gov-Test-Scenario': 'STATEFUL', ...buildFraudHeaders(req) },
         body: JSON.stringify(filteredPayload)
       }
     );
@@ -772,16 +826,14 @@ router.get('/itsa/calculation/:businessId', async (req, env) => {
     const biz = bizzes[0];
     if (!biz.nino) return err('Business has no NINO', 400, req);
 
-    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
-    const tokens = await tokenRes.json();
-    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+    const accessToken = await getValidHmrcToken(env, session.userId).catch(e => { throw new Error(e.message) });
 
     // Step 1 – trigger calculation
     const triggerRes = await fetch(
       `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/in-year`,
       {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
         body: '{}'
       }
     );
@@ -792,7 +844,7 @@ router.get('/itsa/calculation/:businessId', async (req, env) => {
     // Step 2 – retrieve result
     const calcRes = await fetch(
       `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/${calculationId}`,
-      { headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) } }
+      { headers: { 'Authorization': `Bearer ${accessToken}`, 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) } }
     );
     const calcData = await calcRes.json();
     return json({ calculationId, ...calcData }, calcRes.status, req);
@@ -819,9 +871,7 @@ router.post('/itsa/eops/:businessId', async (req, env) => {
     const biz = bizzes[0];
     if (!biz.nino) return err('Business has no NINO', 400, req);
 
-    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
-    const tokens = await tokenRes.json();
-    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+    const accessToken = await getValidHmrcToken(env, session.userId).catch(e => { throw new Error(e.message) });
 
     const payload = {
       typeOfBusiness: 'self-employment',
@@ -834,7 +884,7 @@ router.post('/itsa/eops/:businessId', async (req, env) => {
       `${env.HMRC_API_BASE_URL}/individuals/self-assessment/end-of-period-statement/${biz.nino}`,
       {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.3.0+json', ...buildFraudHeaders(req) },
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.3.0+json', ...buildFraudHeaders(req) },
         body: JSON.stringify(payload)
       }
     );
@@ -873,15 +923,13 @@ router.post('/itsa/crystallise/:businessId', async (req, env) => {
     const biz = bizzes[0];
     if (!biz.nino) return err('Business has no NINO', 400, req);
 
-    const tokenRes = await dbRead(env, 'HmrcToken', `?userId=eq.${session.userId}&select=accessToken&limit=1`);
-    const tokens = await tokenRes.json();
-    if (!tokens || tokens.length === 0) return err('No HMRC token – connect HMRC first', 401, req);
+    const accessToken = await getValidHmrcToken(env, session.userId).catch(e => { throw new Error(e.message) });
 
     const hmrcRes = await fetch(
       `${env.HMRC_API_BASE_URL}/individuals/calculations/${biz.nino}/self-assessment/${taxYear}/${calculationId}/final-declaration`,
       {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${tokens[0].accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Accept': 'application/vnd.hmrc.8.0+json', ...buildFraudHeaders(req) },
         body: JSON.stringify({})
       }
     );
